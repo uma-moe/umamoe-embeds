@@ -1166,12 +1166,63 @@ struct TierlistCacheEntry {
 static TIERLIST_CACHE: OnceLock<Mutex<Option<TierlistCacheEntry>>> = OnceLock::new();
 const TIERLIST_CACHE_TTL: Duration = Duration::from_secs(300);
 
-pub async fn metadata_for_path(
-    client: &Client,
-    config: &Config,
-    path: &str,
-    query: Option<&str>,
-) -> Option<EmbedMetadata> {
+#[derive(Debug, PartialEq, Eq)]
+enum MetadataRoute {
+    Home,
+    Profile {
+        account_id: String,
+        subsection: String,
+    },
+    Clubs,
+    Circle {
+        circle_id: String,
+    },
+    Database,
+    Timeline,
+    Tierlist,
+    Rankings,
+    Activity,
+    ActivityDetail {
+        viewer_id: String,
+    },
+    Tools,
+    Statistics,
+    LineagePlanner,
+    PrivacyPolicy,
+    Generic {
+        normalized_path: String,
+    },
+}
+
+impl MetadataRoute {
+    #[cfg(test)]
+    fn kind_label(&self) -> &'static str {
+        match self {
+            MetadataRoute::Home => "Home",
+            MetadataRoute::Profile { subsection, .. } => match subsection.as_str() {
+                "veterans" => "Veterans",
+                "cm" => "Career Menu",
+                "achievements" => "Achievements",
+                "titles" => "Titles",
+                _ => "Profile",
+            },
+            MetadataRoute::Clubs => "Clubs",
+            MetadataRoute::Circle { .. } => "Club",
+            MetadataRoute::Database => "Database",
+            MetadataRoute::Timeline => "Timeline",
+            MetadataRoute::Tierlist => "Tierlist",
+            MetadataRoute::Rankings => "Rankings",
+            MetadataRoute::Activity | MetadataRoute::ActivityDetail { .. } => "Activity",
+            MetadataRoute::Tools => "Tools",
+            MetadataRoute::Statistics => "Statistics",
+            MetadataRoute::LineagePlanner => "Lineage Planner",
+            MetadataRoute::PrivacyPolicy => "Privacy Policy",
+            MetadataRoute::Generic { .. } => "uma.moe",
+        }
+    }
+}
+
+fn metadata_route_for_path(path: &str) -> Option<MetadataRoute> {
     if should_never_embed(path) {
         return None;
     }
@@ -1179,31 +1230,74 @@ pub async fn metadata_for_path(
     let normalized_path = normalize_path(path);
     let segments = path_segments(&normalized_path);
 
-    match segments.as_slice() {
-        [] => Some(home_metadata(client, config).await),
-        ["profile", account_id] => {
-            Some(profile_metadata(client, config, account_id, "/profile").await)
+    Some(match segments.as_slice() {
+        [] => MetadataRoute::Home,
+        ["profile", account_id] => MetadataRoute::Profile {
+            account_id: (*account_id).to_string(),
+            subsection: "/profile".to_string(),
+        },
+        ["profile", account_id, subsection] => MetadataRoute::Profile {
+            account_id: (*account_id).to_string(),
+            subsection: (*subsection).to_string(),
+        },
+        ["circles"] => MetadataRoute::Clubs,
+        ["circles", circle_id] | ["circles", circle_id, _] => MetadataRoute::Circle {
+            circle_id: (*circle_id).to_string(),
+        },
+        ["database"] | ["inheritance"] | ["support-cards"] => MetadataRoute::Database,
+        ["timeline"] => MetadataRoute::Timeline,
+        ["tierlist"] => MetadataRoute::Tierlist,
+        ["rankings"] => MetadataRoute::Rankings,
+        ["activity"] | ["shame"] => MetadataRoute::Activity,
+        ["activity", viewer_id] | ["shame", viewer_id] => MetadataRoute::ActivityDetail {
+            viewer_id: (*viewer_id).to_string(),
+        },
+        ["tools"] => MetadataRoute::Tools,
+        ["tools", "statistics"] => MetadataRoute::Statistics,
+        ["tools", "lineage-planner"] => MetadataRoute::LineagePlanner,
+        ["privacy-policy"] => MetadataRoute::PrivacyPolicy,
+        _ => MetadataRoute::Generic { normalized_path },
+    })
+}
+
+pub async fn metadata_for_path(
+    client: &Client,
+    config: &Config,
+    path: &str,
+    query: Option<&str>,
+) -> Option<EmbedMetadata> {
+    match metadata_route_for_path(path)? {
+        MetadataRoute::Home => Some(home_metadata(client, config).await),
+        MetadataRoute::Profile {
+            account_id,
+            subsection,
+        } => Some(profile_metadata(client, config, &account_id, &subsection).await),
+        MetadataRoute::Clubs => Some(circles_metadata(client, config, query).await),
+        MetadataRoute::Circle { circle_id } => {
+            Some(circle_metadata(client, config, &circle_id).await)
         }
-        ["profile", account_id, subsection] => {
-            Some(profile_metadata(client, config, account_id, subsection).await)
+        MetadataRoute::Database => Some(database_metadata(client, config, query).await),
+        MetadataRoute::Timeline => Some(timeline_metadata(client, config).await),
+        MetadataRoute::Tierlist => Some(tierlist_metadata(client, config).await),
+        MetadataRoute::Rankings => Some(rankings_metadata(client, config, query).await),
+        MetadataRoute::Activity => Some(activity_metadata(client, config, query).await),
+        MetadataRoute::ActivityDetail { viewer_id } => {
+            Some(activity_detail_metadata(client, config, &viewer_id).await)
         }
-        ["circles"] => Some(circles_metadata(client, config, query).await),
-        ["circles", circle_id] | ["circles", circle_id, _] => {
-            Some(circle_metadata(client, config, circle_id).await)
+        MetadataRoute::Tools => Some(tools_metadata(client, config).await),
+        MetadataRoute::Statistics => Some(statistics_metadata(client, config).await),
+        MetadataRoute::LineagePlanner => {
+            Some(lineage_planner_metadata(client, config, query).await)
         }
-        ["database"] => Some(database_metadata(client, config, query).await),
-        ["inheritance"] | ["support-cards"] => Some(database_metadata(client, config, query).await),
-        ["timeline"] => Some(timeline_metadata(client, config).await),
-        ["tierlist"] => Some(tierlist_metadata(client, config).await),
-        ["rankings"] => Some(rankings_metadata(client, config, query).await),
-        ["activity"] | ["shame"] => Some(activity_metadata(client, config, query).await),
-        ["activity", viewer_id] | ["shame", viewer_id] => {
-            Some(activity_detail_metadata(client, config, viewer_id).await)
+        MetadataRoute::PrivacyPolicy => Some(page_metadata(
+            config,
+            "privacy-policy",
+            "/privacy-policy",
+            Some("Privacy Policy"),
+        )),
+        MetadataRoute::Generic { normalized_path } => {
+            Some(generic_metadata(config, &normalized_path))
         }
-        ["tools"] => Some(tools_metadata(client, config).await),
-        ["tools", "statistics"] => Some(statistics_metadata(client, config).await),
-        ["tools", "lineage-planner"] => Some(lineage_planner_metadata(client, config, query).await),
-        _ => Some(generic_metadata(config, &normalized_path)),
     }
 }
 
@@ -1475,6 +1569,7 @@ fn embed_type_slug(meta: &EmbedMetadata) -> &'static str {
         "/tools" => "tools",
         "/tools/statistics" => "statistics",
         "/tools/lineage-planner" => "lineage-planner",
+        "/privacy-policy" => "privacy-policy",
         _ => "page",
     }
 }
@@ -4954,6 +5049,15 @@ fn page_metadata(
                 metric("Asset Base", &config.asset_base_url),
             ],
         ),
+        "privacy-policy" => (
+            "Privacy Policy | uma.moe",
+            "Read how uma.moe handles site data, stored preferences, account identifiers, and privacy-sensitive information.",
+            vec![
+                metric("Policy", "Privacy"),
+                metric("Scope", "uma.moe"),
+                metric("Data", "Site usage"),
+            ],
+        ),
         _ => (
             "uma.moe",
             "Umamusume database, timeline, tierlists, clubs, rankings, profiles, and planning tools.",
@@ -6694,7 +6798,6 @@ fn should_never_embed(path: &str) -> bool {
         || path == "/settings"
         || path == "/wip"
         || path == "/signin"
-        || path == "/privacy-policy"
         || path == "/healthz"
         || has_file_extension(&path)
 }
@@ -7028,6 +7131,7 @@ mod tests {
             ("Tools", "embed-kind-tools"),
             ("Statistics", "embed-kind-statistics"),
             ("Lineage Planner", "embed-kind-lineage-planner"),
+            ("Privacy Policy", "embed-kind-privacy-policy"),
             ("uma.moe", "embed-kind-uma-moe"),
         ];
 
@@ -7058,6 +7162,47 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_all_supported_public_embed_routes() {
+        let cases = [
+            ("/", "Home"),
+            ("/profile/540903147493", "Profile"),
+            ("/profile/540903147493/veterans", "Veterans"),
+            ("/profile/540903147493/cm", "Career Menu"),
+            ("/profile/540903147493/achievements", "Achievements"),
+            ("/profile/540903147493/titles", "Titles"),
+            ("/circles", "Clubs"),
+            ("/circles/", "Clubs"),
+            ("/circles/114701329", "Club"),
+            ("/circles/114701329/members", "Club"),
+            ("/database", "Database"),
+            ("/database/", "Database"),
+            ("/inheritance", "Database"),
+            ("/support-cards", "Database"),
+            ("/timeline", "Timeline"),
+            ("/tierlist", "Tierlist"),
+            ("/rankings", "Rankings"),
+            ("/activity", "Activity"),
+            ("/activity/540903147493", "Activity"),
+            ("/shame", "Activity"),
+            ("/shame/540903147493", "Activity"),
+            ("/tools", "Tools"),
+            ("/tools/statistics", "Statistics"),
+            ("/tools/lineage-planner", "Lineage Planner"),
+            ("/privacy-policy", "Privacy Policy"),
+        ];
+
+        for (path, kind_label) in cases {
+            let route =
+                metadata_route_for_path(path).unwrap_or_else(|| panic!("{path} should embed"));
+            assert_eq!(
+                route.kind_label(),
+                kind_label,
+                "{path} should resolve to {kind_label}"
+            );
+        }
+    }
+
+    #[test]
     fn ignores_assets_and_api() {
         assert!(should_never_embed("/assets/app.js"));
         assert!(should_never_embed("/api/v4/circles"));
@@ -7065,7 +7210,7 @@ mod tests {
         assert!(should_never_embed("/settings"));
         assert!(should_never_embed("/wip"));
         assert!(should_never_embed("/signin"));
-        assert!(should_never_embed("/privacy-policy"));
+        assert!(!should_never_embed("/privacy-policy"));
         assert!(!should_never_embed("/circles/772781438"));
     }
 

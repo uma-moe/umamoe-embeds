@@ -5,10 +5,10 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc, Mutex, TryLockError,
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -39,6 +39,7 @@ const WIDTH: u32 = 1200;
 const HEIGHT: u32 = 630;
 const DEFAULT_CHROMIUM_STARTUP_TIMEOUT_SECONDS: u64 = 45;
 const DEFAULT_CHROMIUM_RENDER_TIMEOUT_SECONDS: u64 = 15;
+const DEFAULT_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS: u64 = 900;
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 12 * 1024 * 1024;
 static RENDER_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -48,14 +49,34 @@ pub struct HtmlRenderer {
 }
 
 struct HtmlRendererInner {
-    chromium: Mutex<Option<ChromiumProcess>>,
+    chromium_slots: Vec<ChromiumSlot>,
+    next_slot: AtomicUsize,
+}
+
+struct ChromiumSlot {
+    state: Mutex<ChromiumSlotState>,
+}
+
+struct ChromiumSlotState {
+    chromium: Option<ChromiumProcess>,
+    disabled_until: Option<Instant>,
 }
 
 impl HtmlRenderer {
-    pub fn new() -> Self {
+    pub fn new(pool_size: usize) -> Self {
+        let pool_size = pool_size.max(1);
+
         Self {
             inner: Arc::new(HtmlRendererInner {
-                chromium: Mutex::new(None),
+                chromium_slots: (0..pool_size)
+                    .map(|_| ChromiumSlot {
+                        state: Mutex::new(ChromiumSlotState {
+                            chromium: None,
+                            disabled_until: None,
+                        }),
+                    })
+                    .collect(),
+                next_slot: AtomicUsize::new(0),
             }),
         }
     }
@@ -63,8 +84,15 @@ impl HtmlRenderer {
     pub fn warm_up(&self) {
         let renderer = self.clone();
         task::spawn_blocking(move || {
-            if let Err(error) = renderer.ensure_chromium() {
-                tracing::warn!(%error, "failed to warm Chromium renderer");
+            for slot_index in 0..renderer.slot_count() {
+                if let Err(error) = renderer.ensure_chromium(slot_index) {
+                    renderer.disable_persistent_chromium(slot_index);
+                    tracing::warn!(
+                        slot_index = slot_index,
+                        %error,
+                        "failed to warm Chromium renderer slot"
+                    );
+                }
             }
         });
     }
@@ -77,13 +105,22 @@ impl HtmlRenderer {
             .context("html card render task failed")?
     }
 
-    fn ensure_chromium(&self) -> Result<()> {
-        let mut guard = self
+    fn ensure_chromium(&self, slot_index: usize) -> Result<()> {
+        let slot = self
             .inner
-            .chromium
+            .chromium_slots
+            .get(slot_index)
+            .ok_or_else(|| anyhow!("Chromium renderer slot {slot_index} is unavailable"))?;
+        let mut state = slot
+            .state
             .lock()
-            .map_err(|_| anyhow!("Chromium renderer lock is poisoned"))?;
-        ensure_chromium_process(&mut guard).map(|_| ())
+            .map_err(|_| anyhow!("Chromium renderer slot {slot_index} lock is poisoned"))?;
+
+        if !persistent_chromium_slot_available(&mut state) {
+            return Ok(());
+        }
+
+        ensure_chromium_process(&mut state.chromium, slot_index).map(|_| ())
     }
 
     fn render_png_sync(&self, meta: &EmbedMetadata) -> Result<Vec<u8>> {
@@ -97,34 +134,95 @@ impl HtmlRenderer {
         })?;
 
         let url = file_url(&files.html_path);
-        let mut guard = self
-            .inner
-            .chromium
-            .lock()
-            .map_err(|_| anyhow!("Chromium renderer lock is poisoned"))?;
 
-        match capture_with_persistent_chromium(&mut guard, &url) {
-            Ok(bytes) => return Ok(bytes),
+        match self.capture_with_persistent_chromium(&url) {
+            Ok(Some(bytes)) => return Ok(bytes),
+            Ok(None) => {
+                return render_png_with_chromium_cli(meta).context(
+                    "Chromium CLI renderer failed while no persistent renderer slot was available",
+                );
+            }
             Err(error) => {
                 tracing::warn!(%error, "persistent Chromium render failed; using Chromium CLI renderer");
-                stop_chromium_process(&mut guard);
                 render_png_with_chromium_cli(meta)
                     .context("Chromium CLI fallback failed after persistent renderer failed")
             }
         }
     }
+
+    fn capture_with_persistent_chromium(&self, url: &str) -> Result<Option<Vec<u8>>> {
+        let slot_count = self.slot_count();
+        let start = self.inner.next_slot.fetch_add(1, Ordering::Relaxed) % slot_count;
+        let mut saw_busy_slot = false;
+
+        for offset in 0..slot_count {
+            let slot_index = (start + offset) % slot_count;
+            let slot = &self.inner.chromium_slots[slot_index];
+            let mut state = match slot.state.try_lock() {
+                Ok(state) => state,
+                Err(TryLockError::WouldBlock) => {
+                    saw_busy_slot = true;
+                    continue;
+                }
+                Err(TryLockError::Poisoned(_)) => {
+                    return Err(anyhow!(
+                        "Chromium renderer slot {slot_index} lock is poisoned"
+                    ));
+                }
+            };
+
+            if !persistent_chromium_slot_available(&mut state) {
+                continue;
+            }
+
+            return capture_with_available_persistent_slot(&mut state, slot_index, url).map(Some);
+        }
+
+        if saw_busy_slot {
+            let slot_index = start;
+            let slot = &self.inner.chromium_slots[slot_index];
+            let mut state = slot
+                .state
+                .lock()
+                .map_err(|_| anyhow!("Chromium renderer slot {slot_index} lock is poisoned"))?;
+
+            if persistent_chromium_slot_available(&mut state) {
+                return capture_with_available_persistent_slot(&mut state, slot_index, url)
+                    .map(Some);
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn disable_persistent_chromium(&self, slot_index: usize) {
+        let Some(slot) = self.inner.chromium_slots.get(slot_index) else {
+            return;
+        };
+        let Ok(mut state) = slot.state.lock() else {
+            return;
+        };
+
+        disable_persistent_chromium_slot(&mut state);
+    }
+
+    fn slot_count(&self) -> usize {
+        self.inner.chromium_slots.len()
+    }
 }
 
 impl Default for HtmlRenderer {
     fn default() -> Self {
-        Self::new()
+        Self::new(1)
     }
 }
 
 impl Drop for HtmlRendererInner {
     fn drop(&mut self) {
-        if let Ok(mut guard) = self.chromium.lock() {
-            stop_chromium_process(&mut guard);
+        for slot in &self.chromium_slots {
+            if let Ok(mut state) = slot.state.lock() {
+                stop_chromium_process(&mut state.chromium);
+            }
         }
     }
 }
@@ -136,15 +234,54 @@ struct ChromiumProcess {
     cache_dir: PathBuf,
 }
 
-fn capture_with_persistent_chromium(
-    guard: &mut Option<ChromiumProcess>,
+fn capture_with_available_persistent_slot(
+    state: &mut ChromiumSlotState,
+    slot_index: usize,
     url: &str,
 ) -> Result<Vec<u8>> {
-    let chromium = ensure_chromium_process(guard)?;
+    match capture_with_chromium_process(&mut state.chromium, slot_index, url) {
+        Ok(bytes) => Ok(bytes),
+        Err(error) => {
+            tracing::warn!(
+                slot_index = slot_index,
+                %error,
+                "persistent Chromium renderer slot failed"
+            );
+            stop_chromium_process(&mut state.chromium);
+            disable_persistent_chromium_slot(state);
+            Err(error)
+        }
+    }
+}
+
+fn persistent_chromium_slot_available(state: &mut ChromiumSlotState) -> bool {
+    match state.disabled_until {
+        Some(until) if Instant::now() < until => false,
+        Some(_) => {
+            state.disabled_until = None;
+            true
+        }
+        None => true,
+    }
+}
+
+fn disable_persistent_chromium_slot(state: &mut ChromiumSlotState) {
+    state.disabled_until = Some(Instant::now() + persistent_chromium_cooldown());
+}
+
+fn capture_with_chromium_process(
+    guard: &mut Option<ChromiumProcess>,
+    slot_index: usize,
+    url: &str,
+) -> Result<Vec<u8>> {
+    let chromium = ensure_chromium_process(guard, slot_index)?;
     chromium.capture(url)
 }
 
-fn ensure_chromium_process(guard: &mut Option<ChromiumProcess>) -> Result<&mut ChromiumProcess> {
+fn ensure_chromium_process(
+    guard: &mut Option<ChromiumProcess>,
+    slot_index: usize,
+) -> Result<&mut ChromiumProcess> {
     let needs_start = match guard.as_mut() {
         Some(chromium) => chromium.child.try_wait()?.is_some(),
         None => true,
@@ -152,7 +289,7 @@ fn ensure_chromium_process(guard: &mut Option<ChromiumProcess>) -> Result<&mut C
 
     if needs_start {
         stop_chromium_process(guard);
-        *guard = Some(ChromiumProcess::start()?);
+        *guard = Some(ChromiumProcess::start(slot_index)?);
     }
 
     guard
@@ -170,7 +307,7 @@ fn stop_chromium_process(guard: &mut Option<ChromiumProcess>) {
 }
 
 impl ChromiumProcess {
-    fn start() -> Result<Self> {
+    fn start(slot_index: usize) -> Result<Self> {
         let chromium = chromium_binary();
         let id = unique_render_id();
         let base = env::temp_dir();
@@ -189,7 +326,7 @@ impl ChromiumProcess {
             )
         })?;
 
-        let configured_port = chromium_debug_port()?;
+        let configured_port = chromium_debug_port(slot_index)?;
         let window_size_arg = format!("--window-size={WIDTH},{HEIGHT}");
         let profile_arg = format!("--user-data-dir={}", profile_dir.display());
         let cache_arg = format!("--disk-cache-dir={}", cache_dir.display());
@@ -3297,14 +3434,24 @@ fn chromium_binary() -> String {
     "chromium".to_string()
 }
 
-fn chromium_debug_port() -> Result<Option<u16>> {
+fn chromium_debug_port(slot_index: usize) -> Result<Option<u16>> {
     if let Ok(value) = env::var("UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT") {
         let value = value.trim();
         if !value.is_empty() {
-            return value
+            let base_port = value
                 .parse::<u16>()
-                .map(Some)
-                .context("UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT must be a TCP port");
+                .context("UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT must be a TCP port")?;
+            if base_port == 0 {
+                return Ok(Some(0));
+            }
+            let offset = u16::try_from(slot_index)
+                .context("UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY is too large for debug ports")?;
+            let port = base_port.checked_add(offset).ok_or_else(|| {
+                anyhow!(
+                    "UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT plus renderer slot exceeded TCP port range"
+                )
+            })?;
+            return Ok(Some(port));
         }
     }
 
@@ -3340,6 +3487,13 @@ fn chromium_render_timeout() -> Duration {
     duration_from_env(
         "UMAMOE_EMBEDS_CHROMIUM_RENDER_TIMEOUT_SECONDS",
         DEFAULT_CHROMIUM_RENDER_TIMEOUT_SECONDS,
+    )
+}
+
+fn persistent_chromium_cooldown() -> Duration {
+    duration_from_env(
+        "UMAMOE_EMBEDS_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS",
+        DEFAULT_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS,
     )
 }
 

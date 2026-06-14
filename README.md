@@ -68,15 +68,16 @@ UMAMOE_EMBEDS_BOT_USER_AGENT_TOKENS=Discordbot,Twitterbot,Slackbot,facebookexter
 UMAMOE_EMBEDS_IMAGE_CACHE_MAX_AGE_SECONDS=300
 UMAMOE_EMBEDS_IMAGE_CACHE_STALE_SECONDS=86400
 UMAMOE_EMBEDS_IMAGE_CACHE_MAX_ENTRIES=256
-UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY=1
+UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY=2
 UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT=
 UMAMOE_EMBEDS_CHROMIUM_STARTUP_TIMEOUT_SECONDS=45
 UMAMOE_EMBEDS_CHROMIUM_RENDER_TIMEOUT_SECONDS=15
+UMAMOE_EMBEDS_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS=900
 ```
 
 `UMAMOE_FRONTEND_ORIGIN` must point at the static Angular shell origin. `UMAMOE_ASSET_BASE_URL` points at the public static assets directory and defaults to `https://uma.moe/assets`, so local Docker previews can reuse production character, support-card, rank, and logo assets. `UMAMOE_API_BASE_URL` must point at the backend internal listener and defaults to `http://umamoe-backend:3201`; do not point it at the public/protected backend listener or page previews such as clubs and rankings will fall back when the backend returns 403. `UMAMOE_SEARCH_BASE_URL` defaults to the internal Docker search origin `http://umamoe-search:3202`. `UMAMOE_RESOURCES_BASE_URL` must point at the internal Docker resources service `/resources` origin and defaults to `http://umamoe-resources:3204/resources`; do not point it at the public `/resources` route because that route is browser-proof protected. `UMAMOE_RESOURCES_API_TOKEN` is optional and is only needed when using a protected resources endpoint. Avoid setting API/search/resources to the public `https://uma.moe` hostname if Cloudflare routes that hostname back to the embed service, or the service can loop into itself.
 
-The image renderer keeps a Chromium process warm and opens short-lived DevTools tabs for screenshots. `UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY` defaults to `1` so bot bursts do not fan out into many simultaneous Chromium renders. PNGs are cached in-process for `UMAMOE_EMBEDS_IMAGE_CACHE_MAX_AGE_SECONDS` and can be served stale for `UMAMOE_EMBEDS_IMAGE_CACHE_STALE_SECONDS` while a refresh runs. If Chromium is busy and there is no stale entry, the service falls back to the cheaper Rust PNG renderer instead of queueing unbounded work. The Docker image installs Chromium; the host only needs Chromium installed if you run the Rust binary directly outside Docker. On slow/headless servers, increase `UMAMOE_EMBEDS_CHROMIUM_STARTUP_TIMEOUT_SECONDS`.
+The image renderer keeps a small pool of Chromium processes warm and opens short-lived DevTools tabs for screenshots. `UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY` defaults to `2`; set it to the number of simultaneous warm Chromium instances you want the service to run. PNGs are cached in-process for `UMAMOE_EMBEDS_IMAGE_CACHE_MAX_AGE_SECONDS` and can be served stale for `UMAMOE_EMBEDS_IMAGE_CACHE_STALE_SECONDS` while a refresh runs. If all renderer permits are occupied and there is no stale entry, requests wait for the real HTML renderer instead of serving the lower-quality Rust fallback. Requests for the same uncached image share one render. If a persistent Chromium slot fails, only that slot cools down for `UMAMOE_EMBEDS_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS`; the other slots stay usable, and the failed request uses the Chromium CLI renderer. If `UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT` is set with multiple slots, it is treated as the base port and later slots use the next ports. The Docker image installs Chromium; the host only needs Chromium installed if you run the Rust binary directly outside Docker. On slow/headless servers, increase `UMAMOE_EMBEDS_CHROMIUM_STARTUP_TIMEOUT_SECONDS`.
 
 For the local Docker stack, `local.env` is used by `../umamoe-backend/compose.local.yml`.
 

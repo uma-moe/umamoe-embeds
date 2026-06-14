@@ -2,6 +2,7 @@ mod bots;
 mod config;
 mod embed;
 mod html_card;
+#[cfg(test)]
 mod image_card;
 mod proxy;
 
@@ -20,7 +21,7 @@ use axum::{
     Router,
 };
 use reqwest::Client;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{watch, OwnedSemaphorePermit, Semaphore};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
@@ -41,6 +42,7 @@ struct AppState {
 
 struct ImageCache {
     entries: Mutex<HashMap<String, CachedImage>>,
+    in_flight: Mutex<HashMap<String, watch::Sender<bool>>>,
     max_entries: usize,
     render_permits: Arc<Semaphore>,
 }
@@ -51,15 +53,15 @@ struct CachedImage {
     stored_at: Instant,
 }
 
-struct RenderedImage {
-    bytes: Vec<u8>,
-    cacheable: bool,
-}
-
 enum CacheLookup {
     Fresh(Bytes),
     Stale(Bytes),
     Missing,
+}
+
+enum RenderClaim {
+    Started,
+    Waiting(watch::Receiver<bool>),
 }
 
 #[tokio::main]
@@ -75,7 +77,7 @@ async fn main() -> Result<()> {
         .build()
         .context("failed to build HTTP client")?;
 
-    let html_renderer = html_card::HtmlRenderer::new();
+    let html_renderer = html_card::HtmlRenderer::new(config.render_max_concurrency);
     html_renderer.warm_up();
 
     let image_cache = ImageCache::new(
@@ -155,15 +157,19 @@ async fn image_handler(
         }
         CacheLookup::Stale(bytes) => {
             if let Some(permit) = state.image_cache.try_acquire_render() {
-                let state = state.clone();
-                let cache_key = cache_key.clone();
-                let kind = kind.clone();
-                let id = id.clone();
-                let query = uri.query().map(str::to_string);
-                tokio::spawn(async move {
-                    let _permit = permit;
-                    refresh_image_cache(state, cache_key, kind, id, query).await;
-                });
+                if state.image_cache.try_claim_render(&cache_key) {
+                    let state = state.clone();
+                    let cache_key = cache_key.clone();
+                    let kind = kind.clone();
+                    let id = id.clone();
+                    let query = uri.query().map(str::to_string);
+                    tokio::spawn(async move {
+                        let _permit = permit;
+                        refresh_image_cache(state.clone(), cache_key.clone(), kind, id, query)
+                            .await;
+                        state.image_cache.finish_render(&cache_key);
+                    });
+                }
             }
 
             return image_response(&state.config, Method::GET, Some(bytes));
@@ -171,33 +177,47 @@ async fn image_handler(
         CacheLookup::Missing => {}
     }
 
-    let render_permit = state.image_cache.try_acquire_render();
     let Some(meta) =
         metadata_for_image(&state.client, &state.config, &kind, &id, uri.query()).await
     else {
         return plain_response(StatusCode::NOT_FOUND, "Unknown embed image.");
     };
 
-    let bytes = match render_permit {
-        Some(permit) => {
-            let _permit = permit;
-            render_image_bytes(&state, &meta).await
+    let bytes = match state.image_cache.claim_render(&cache_key) {
+        RenderClaim::Started => {
+            let _permit = state.image_cache.acquire_render().await;
+            let result = render_image_bytes(&state, &meta).await;
+            state.image_cache.finish_render(&cache_key);
+            result
         }
-        None => {
-            warn!(%cache_key, "embed image renderer is busy; using fallback image renderer");
-            image_card::render_png(&meta).map(|bytes| RenderedImage {
-                bytes,
-                cacheable: false,
-            })
+        RenderClaim::Waiting(mut receiver) => {
+            if !*receiver.borrow() {
+                let _ = receiver.changed().await;
+            }
+
+            match state.image_cache.get(
+                &cache_key,
+                state.config.image_cache_max_age,
+                state.config.image_cache_stale_while_revalidate,
+            ) {
+                CacheLookup::Fresh(bytes) | CacheLookup::Stale(bytes) => {
+                    return image_response(&state.config, Method::GET, Some(bytes));
+                }
+                CacheLookup::Missing => {
+                    warn!(%cache_key, "in-flight embed image render completed without cache entry");
+                    return plain_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Embed image is not ready yet.",
+                    );
+                }
+            }
         }
     };
 
     match bytes {
         Ok(rendered) => {
-            let bytes = Bytes::from(rendered.bytes);
-            if rendered.cacheable {
-                state.image_cache.insert(cache_key, bytes.clone());
-            }
+            let bytes = Bytes::from(rendered);
+            state.image_cache.insert(cache_key, bytes.clone());
             image_response(&state.config, Method::GET, Some(bytes))
         }
         Err(error) => {
@@ -259,10 +279,7 @@ async fn refresh_image_cache(
     };
 
     match render_image_bytes(&state, &meta).await {
-        Ok(rendered) if rendered.cacheable => state
-            .image_cache
-            .insert(cache_key, Bytes::from(rendered.bytes)),
-        Ok(_) => warn!(%cache_key, "skipping cache refresh for fallback embed image"),
+        Ok(bytes) => state.image_cache.insert(cache_key, Bytes::from(bytes)),
         Err(error) => warn!(%error, "failed to refresh stale embed image cache entry"),
     }
 }
@@ -270,20 +287,8 @@ async fn refresh_image_cache(
 async fn render_image_bytes(
     state: &AppState,
     meta: &embed::EmbedMetadata,
-) -> anyhow::Result<RenderedImage> {
-    match state.html_renderer.render_png(meta).await {
-        Ok(bytes) => Ok(RenderedImage {
-            bytes,
-            cacheable: true,
-        }),
-        Err(error) => {
-            warn!(%error, "failed to render html embed image; falling back to rust image renderer");
-            image_card::render_png(meta).map(|bytes| RenderedImage {
-                bytes,
-                cacheable: false,
-            })
-        }
-    }
+) -> anyhow::Result<Vec<u8>> {
+    state.html_renderer.render_png(meta).await
 }
 
 fn image_cache_key(uri: &Uri) -> String {
@@ -304,6 +309,7 @@ impl ImageCache {
     fn new(max_entries: usize, render_max_concurrency: usize) -> Self {
         Self {
             entries: Mutex::new(HashMap::new()),
+            in_flight: Mutex::new(HashMap::new()),
             max_entries,
             render_permits: Arc::new(Semaphore::new(render_max_concurrency)),
         }
@@ -353,6 +359,52 @@ impl ImageCache {
 
     fn try_acquire_render(&self) -> Option<OwnedSemaphorePermit> {
         self.render_permits.clone().try_acquire_owned().ok()
+    }
+
+    async fn acquire_render(&self) -> OwnedSemaphorePermit {
+        self.render_permits
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("image render semaphore is not closed")
+    }
+
+    fn claim_render(&self, key: &str) -> RenderClaim {
+        let Ok(mut in_flight) = self.in_flight.lock() else {
+            return RenderClaim::Started;
+        };
+
+        if let Some(sender) = in_flight.get(key) {
+            return RenderClaim::Waiting(sender.subscribe());
+        }
+
+        let (sender, _) = watch::channel(false);
+        in_flight.insert(key.to_string(), sender);
+        RenderClaim::Started
+    }
+
+    fn try_claim_render(&self, key: &str) -> bool {
+        let Ok(mut in_flight) = self.in_flight.lock() else {
+            return false;
+        };
+
+        if in_flight.contains_key(key) {
+            return false;
+        }
+
+        let (sender, _) = watch::channel(false);
+        in_flight.insert(key.to_string(), sender);
+        true
+    }
+
+    fn finish_render(&self, key: &str) {
+        let Ok(mut in_flight) = self.in_flight.lock() else {
+            return;
+        };
+
+        if let Some(sender) = in_flight.remove(key) {
+            let _ = sender.send(true);
+        }
     }
 }
 

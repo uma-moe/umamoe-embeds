@@ -109,7 +109,7 @@ impl Config {
         let image_cache_max_entries =
             usize_from_env("UMAMOE_EMBEDS_IMAGE_CACHE_MAX_ENTRIES", 256).max(1);
         let render_max_concurrency =
-            usize_from_env("UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY", 1).max(1);
+            usize_from_env("UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY", 2).max(1);
 
         Ok(Self {
             bind_addr,
