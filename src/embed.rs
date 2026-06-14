@@ -1093,7 +1093,17 @@ struct BannerTimelineEventRaw {
     event_type: String,
     #[serde(default)]
     title: String,
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "image",
+        alias = "imagePath",
+        alias = "image_url",
+        alias = "imageUrl",
+        alias = "banner_image",
+        alias = "bannerImage",
+        alias = "banner_image_path",
+        alias = "bannerImagePath"
+    )]
     image_path: Option<String>,
     #[serde(default)]
     global_release_date: Option<String>,
@@ -7251,6 +7261,27 @@ mod tests {
         assert_eq!(
             story_event.image_path.as_deref(),
             Some("assets/images/story/06_seek_solve_summer_walk_banner.png")
+        );
+    }
+
+    #[test]
+    fn banner_timeline_accepts_image_aliases() {
+        let raw: BannerTimelineRaw = serde_json::from_value(serde_json::json!({
+            "events": [
+                {
+                    "type": "story_event",
+                    "title": "Seek, Solve, Summer Walk!",
+                    "image": "assets/images/story/06_seek_solve_summer_walk_banner.webp",
+                    "global_release_date": "2026-06-12T22:00:00Z"
+                }
+            ]
+        }))
+        .expect("timeline JSON should deserialize");
+
+        let details = timeline_details_from_raw(raw).expect("timeline event should normalize");
+        assert_eq!(
+            details.events[0].image_path.as_deref(),
+            Some("assets/images/story/06_seek_solve_summer_walk_banner.webp")
         );
     }
 

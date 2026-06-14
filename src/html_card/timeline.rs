@@ -1034,7 +1034,9 @@ fn normalize_timeline_asset_path(path: &str) -> String {
         .to_string();
 
     if normalized.ends_with(".png")
-        && (normalized.contains("/character/banner/") || normalized.contains("/support/banner/"))
+        && (normalized.contains("/character/banner/")
+            || normalized.contains("/support/banner/")
+            || normalized.contains("/story/"))
     {
         format!("{}.webp", normalized.trim_end_matches(".png"))
     } else {

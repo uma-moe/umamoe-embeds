@@ -1,7 +1,7 @@
 use std::{
     env, fs,
     io::{Read, Write},
-    net::{TcpListener, TcpStream},
+    net::TcpStream,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -103,21 +103,11 @@ impl HtmlRenderer {
             .lock()
             .map_err(|_| anyhow!("Chromium renderer lock is poisoned"))?;
 
-        let first_error = match capture_with_persistent_chromium(&mut guard, &url) {
-            Ok(bytes) => return Ok(bytes),
-            Err(error) => error,
-        };
-
-        tracing::warn!(%first_error, "persistent Chromium render failed; restarting renderer");
-        stop_chromium_process(&mut guard);
-
         match capture_with_persistent_chromium(&mut guard, &url) {
-            Ok(bytes) => Ok(bytes),
+            Ok(bytes) => return Ok(bytes),
             Err(error) => {
-                tracing::warn!(
-                    %error,
-                    "persistent Chromium retry failed; using Chromium CLI renderer"
-                );
+                tracing::warn!(%error, "persistent Chromium render failed; using Chromium CLI renderer");
+                stop_chromium_process(&mut guard);
                 render_png_with_chromium_cli(meta)
                     .context("Chromium CLI fallback failed after persistent renderer failed")
             }
@@ -199,12 +189,13 @@ impl ChromiumProcess {
             )
         })?;
 
-        let port = chromium_debug_port()?;
+        let configured_port = chromium_debug_port()?;
         let window_size_arg = format!("--window-size={WIDTH},{HEIGHT}");
         let profile_arg = format!("--user-data-dir={}", profile_dir.display());
         let cache_arg = format!("--disk-cache-dir={}", cache_dir.display());
         let crash_dumps_arg = format!("--crash-dumps-dir={}", cache_dir.display());
-        let remote_debugging_arg = format!("--remote-debugging-port={port}");
+        let remote_debugging_arg =
+            format!("--remote-debugging-port={}", configured_port.unwrap_or(0));
 
         let child = Command::new(&chromium)
             .args([
@@ -258,7 +249,7 @@ impl ChromiumProcess {
 
         let mut process = Self {
             child,
-            port,
+            port: configured_port.unwrap_or(0),
             profile_dir,
             cache_dir,
         };
@@ -276,15 +267,21 @@ impl ChromiumProcess {
                 ));
             }
 
-            if http_request(self.port, "GET", "/json/version").is_ok() {
+            if self.port == 0 {
+                if let Some(port) = read_devtools_active_port(&self.profile_dir)? {
+                    self.port = port;
+                }
+            }
+
+            if self.port != 0 && http_request(self.port, "GET", "/json/version").is_ok() {
                 return Ok(());
             }
 
             if started_at.elapsed().unwrap_or_default() > startup_timeout {
                 return Err(anyhow!(
-                    "Chromium did not expose DevTools on 127.0.0.1:{} within {:?}",
-                    self.port,
-                    startup_timeout
+                    "Chromium did not expose DevTools within {:?}; profile={}",
+                    startup_timeout,
+                    self.profile_dir.display()
                 ));
             }
 
@@ -3300,21 +3297,36 @@ fn chromium_binary() -> String {
     "chromium".to_string()
 }
 
-fn chromium_debug_port() -> Result<u16> {
+fn chromium_debug_port() -> Result<Option<u16>> {
     if let Ok(value) = env::var("UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT") {
         let value = value.trim();
         if !value.is_empty() {
             return value
                 .parse::<u16>()
+                .map(Some)
                 .context("UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT must be a TCP port");
         }
     }
 
-    let listener =
-        TcpListener::bind(("127.0.0.1", 0)).context("failed to reserve a Chromium debug port")?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
-    Ok(port)
+    Ok(None)
+}
+
+fn read_devtools_active_port(profile_dir: &Path) -> Result<Option<u16>> {
+    let path = profile_dir.join("DevToolsActivePort");
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let contents =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let Some(port) = contents.lines().next() else {
+        return Ok(None);
+    };
+    let port = port
+        .trim()
+        .parse::<u16>()
+        .with_context(|| format!("invalid Chromium DevTools port in {}", path.display()))?;
+    Ok(Some(port))
 }
 
 fn chromium_startup_timeout() -> Duration {
