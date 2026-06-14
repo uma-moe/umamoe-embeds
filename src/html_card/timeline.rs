@@ -58,7 +58,7 @@ const TIMELINE_MIN_LANE_CARD_GAP: f64 = 36.0;
 const TIMELINE_FIRST_FUTURE_ANCHOR_GAP: f64 = 64.0;
 
 pub(super) fn renders_full_card(meta: &EmbedMetadata) -> bool {
-    meta.database.is_none() && super::canonical_path(&meta.canonical_url) == "/timeline"
+    meta.database.is_none() && super::canonical_path_matches(&meta.canonical_url, "/timeline")
 }
 
 pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {

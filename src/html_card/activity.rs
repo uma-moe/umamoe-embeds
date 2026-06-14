@@ -25,15 +25,19 @@ struct ActivityRow {
 
 pub(super) fn renders_full_card(meta: &EmbedMetadata) -> bool {
     let path = super::canonical_path(&meta.canonical_url);
-    (matches!(path.as_str(), "/activity" | "/shame")
-        || path.starts_with("/activity/")
-        || path.starts_with("/shame/"))
+    let route_path = super::normalize_route_path(&path);
+
+    (matches!(route_path, "/activity" | "/shame")
+        || route_path.starts_with("/activity/")
+        || route_path.starts_with("/shame/"))
         && meta.database.is_none()
 }
 
 pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     let path = super::canonical_path(&meta.canonical_url);
-    if path.starts_with("/activity/") || path.starts_with("/shame/") {
+    let route_path = super::normalize_route_path(&path);
+
+    if route_path.starts_with("/activity/") || route_path.starts_with("/shame/") {
         return render_detail_card_html(meta);
     }
 

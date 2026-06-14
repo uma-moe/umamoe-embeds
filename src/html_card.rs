@@ -3537,6 +3537,24 @@ fn canonical_path(url: &str) -> String {
     }
 }
 
+fn normalize_route_path(path: &str) -> &str {
+    if path == "/" {
+        return path;
+    }
+
+    let normalized = path.trim_end_matches('/');
+    if normalized.is_empty() {
+        "/"
+    } else {
+        normalized
+    }
+}
+
+fn canonical_path_matches(url: &str, expected: &str) -> bool {
+    let path = canonical_path(url);
+    normalize_route_path(&path) == expected
+}
+
 fn truncate_chars(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value.to_string();
@@ -3752,6 +3770,55 @@ mod tests {
         assert!(html.contains("lb-row top-1"));
         assert!(!html.contains("record-card"));
         assert!(!html.contains("overview-body"));
+    }
+
+    #[test]
+    fn page_specific_cards_accept_trailing_slashes() {
+        let cases = [
+            ("Clubs", "https://uma.moe/circles/", "clubs-card"),
+            (
+                "Rankings",
+                "https://uma.moe/rankings/?tab=gains",
+                "rankings-card",
+            ),
+            ("Activity", "https://uma.moe/activity/", "activity-card"),
+            ("Timeline", "https://uma.moe/timeline/", "timeline-card"),
+            ("Tierlist", "https://uma.moe/tierlist/", "tierlist-card"),
+            ("Tools", "https://uma.moe/tools/", "tools-card"),
+            (
+                "Statistics",
+                "https://uma.moe/tools/statistics/",
+                "statistics-card",
+            ),
+            (
+                "Lineage Planner",
+                "https://uma.moe/tools/lineage-planner/",
+                "lineage-card",
+            ),
+            ("Database", "https://uma.moe/database/", "database-card"),
+            (
+                "Inheritance",
+                "https://uma.moe/inheritance/",
+                "database-card",
+            ),
+            (
+                "Support Cards",
+                "https://uma.moe/support-cards/",
+                "database-card",
+            ),
+        ];
+
+        for (kind_label, canonical_url, card_class) in cases {
+            let html = render_card_html(&overview_meta(kind_label, canonical_url));
+            assert!(
+                html.contains(card_class),
+                "{canonical_url} should render {card_class}"
+            );
+            assert!(
+                !html.contains("overview-body"),
+                "{canonical_url} should not fall back to overview"
+            );
+        }
     }
 
     #[test]

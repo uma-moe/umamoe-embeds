@@ -33,8 +33,8 @@ env:
   BETA_PUBLIC_BASE_URL: https://beta.uma.moe
   PROD_ASSET_BASE_URL: https://uma.moe/assets
   BETA_ASSET_BASE_URL: https://beta.uma.moe/assets
-  PROD_API_BASE_URL: http://umamoe-backend
-  BETA_API_BASE_URL: http://umamoe-backend-beta
+  PROD_API_BASE_URL: http://umamoe-backend:3201
+  BETA_API_BASE_URL: http://umamoe-backend-beta:3201
   PROD_SEARCH_BASE_URL: http://umamoe-search:3202
   BETA_SEARCH_BASE_URL: http://umamoe-search-beta:3202
   PROD_RESOURCES_BASE_URL: http://umamoe-resources:3204/resources

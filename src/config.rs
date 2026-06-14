@@ -26,7 +26,7 @@ const DEFAULT_BOT_TOKENS: &[&str] = &[
 ];
 const DEFAULT_RESOURCES_BASE_URL: &str = "http://umamoe-resources:3204/resources";
 const DEFAULT_ASSET_BASE_URL: &str = "https://uma.moe/assets";
-const DEFAULT_API_BASE_URL: &str = "http://umamoe-backend:3001";
+const DEFAULT_API_BASE_URL: &str = "http://umamoe-backend:3201";
 const DEFAULT_SEARCH_BASE_URL: &str = "http://umamoe-search:3202";
 
 #[derive(Clone, Debug)]

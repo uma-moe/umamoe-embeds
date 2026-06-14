@@ -26,7 +26,10 @@ fn card_view(meta: &EmbedMetadata) -> CardView {
         return DATABASE_VIEW;
     }
 
-    match canonical_path(&meta.canonical_url).as_str() {
+    let path = canonical_path(&meta.canonical_url);
+    let route_path = super::normalize_route_path(&path);
+
+    match route_path {
         "/" => super::home::VIEW,
         path if path.starts_with("/profile/") => super::profile::VIEW,
         "/circles" => super::clubs::VIEW,

@@ -18,7 +18,7 @@ struct RankingRow {
 }
 
 pub(super) fn renders_full_card(meta: &EmbedMetadata) -> bool {
-    meta.database.is_none() && super::canonical_path(&meta.canonical_url) == "/rankings"
+    meta.database.is_none() && super::canonical_path_matches(&meta.canonical_url, "/rankings")
 }
 
 pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {

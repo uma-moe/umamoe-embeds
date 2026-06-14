@@ -6906,7 +6906,7 @@ mod tests {
             public_base_url: "https://uma.moe".to_string(),
             frontend_origin: "http://127.0.0.1:4200".to_string(),
             asset_base_url: "https://uma.moe/assets".to_string(),
-            api_base_url: "http://umamoe-backend:3001".to_string(),
+            api_base_url: "http://umamoe-backend:3201".to_string(),
             search_base_url: "http://umamoe-search:3202".to_string(),
             resources_base_url: "http://umamoe-resources:3204/resources".to_string(),
             resources_api_token: None,

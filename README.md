@@ -59,7 +59,7 @@ UMAMOE_EMBEDS_BIND=0.0.0.0:8080
 UMAMOE_PUBLIC_BASE_URL=https://uma.moe
 UMAMOE_FRONTEND_ORIGIN=http://umamoe-frontend-shell:80
 UMAMOE_ASSET_BASE_URL=https://uma.moe/assets
-UMAMOE_API_BASE_URL=http://umamoe-api:8080
+UMAMOE_API_BASE_URL=http://umamoe-backend:3201
 UMAMOE_SEARCH_BASE_URL=http://umamoe-search:3202
 UMAMOE_RESOURCES_BASE_URL=http://umamoe-resources:3204/resources
 UMAMOE_RESOURCES_API_TOKEN=
@@ -74,7 +74,7 @@ UMAMOE_EMBEDS_CHROMIUM_STARTUP_TIMEOUT_SECONDS=45
 UMAMOE_EMBEDS_CHROMIUM_RENDER_TIMEOUT_SECONDS=15
 ```
 
-`UMAMOE_FRONTEND_ORIGIN` must point at the static Angular shell origin. `UMAMOE_ASSET_BASE_URL` points at the public static assets directory and defaults to `https://uma.moe/assets`, so local Docker previews can reuse production character, support-card, rank, and logo assets. `UMAMOE_API_BASE_URL` defaults to the internal Docker backend origin `http://umamoe-backend:3001`. `UMAMOE_SEARCH_BASE_URL` defaults to the internal Docker search origin `http://umamoe-search:3202`. `UMAMOE_RESOURCES_BASE_URL` must point at the internal Docker resources service `/resources` origin and defaults to `http://umamoe-resources:3204/resources`; do not point it at the public `/resources` route because that route is browser-proof protected. `UMAMOE_RESOURCES_API_TOKEN` is optional and is only needed when using a protected resources endpoint. Avoid setting API/search/resources to the public `https://uma.moe` hostname if Cloudflare routes that hostname back to the embed service, or the service can loop into itself.
+`UMAMOE_FRONTEND_ORIGIN` must point at the static Angular shell origin. `UMAMOE_ASSET_BASE_URL` points at the public static assets directory and defaults to `https://uma.moe/assets`, so local Docker previews can reuse production character, support-card, rank, and logo assets. `UMAMOE_API_BASE_URL` must point at the backend internal listener and defaults to `http://umamoe-backend:3201`; do not point it at the public/protected backend listener or page previews such as clubs and rankings will fall back when the backend returns 403. `UMAMOE_SEARCH_BASE_URL` defaults to the internal Docker search origin `http://umamoe-search:3202`. `UMAMOE_RESOURCES_BASE_URL` must point at the internal Docker resources service `/resources` origin and defaults to `http://umamoe-resources:3204/resources`; do not point it at the public `/resources` route because that route is browser-proof protected. `UMAMOE_RESOURCES_API_TOKEN` is optional and is only needed when using a protected resources endpoint. Avoid setting API/search/resources to the public `https://uma.moe` hostname if Cloudflare routes that hostname back to the embed service, or the service can loop into itself.
 
 The image renderer keeps a Chromium process warm and opens short-lived DevTools tabs for screenshots. `UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY` defaults to `1` so bot bursts do not fan out into many simultaneous Chromium renders. PNGs are cached in-process for `UMAMOE_EMBEDS_IMAGE_CACHE_MAX_AGE_SECONDS` and can be served stale for `UMAMOE_EMBEDS_IMAGE_CACHE_STALE_SECONDS` while a refresh runs. If Chromium is busy and there is no stale entry, the service falls back to the cheaper Rust PNG renderer instead of queueing unbounded work. The Docker image installs Chromium; the host only needs Chromium installed if you run the Rust binary directly outside Docker. On slow/headless servers, increase `UMAMOE_EMBEDS_CHROMIUM_STARTUP_TIMEOUT_SECONDS`.
 
@@ -232,8 +232,8 @@ The workflow injects the environment-specific public and internal service URLs a
 
 - Beta: `UMAMOE_PUBLIC_BASE_URL=https://beta.uma.moe`, host port `3108`, container `umamoe-embeds-beta`, shared-network alias `umamoe-embeds-beta`
 - Production: `UMAMOE_PUBLIC_BASE_URL=https://uma.moe`, host port `3008`, container `umamoe-embeds`, shared-network alias `umamoe-embeds`
-- Beta dependencies: `http://umamoe-backend-beta`, `http://umamoe-search-beta:3202`, `http://umamoe-resources-beta:3204/resources`
-- Production dependencies: `http://umamoe-backend`, `http://umamoe-search:3202`, `http://umamoe-resources:3204/resources`
+- Beta dependencies: `http://umamoe-backend-beta:3201`, `http://umamoe-search-beta:3202`, `http://umamoe-resources-beta:3204/resources`
+- Production dependencies: `http://umamoe-backend:3201`, `http://umamoe-search:3202`, `http://umamoe-resources:3204/resources`
 
 Public exposure still depends on nginx routing the intended embed traffic to `127.0.0.1:3108` for beta and `127.0.0.1:3008` for production.
 
@@ -259,7 +259,7 @@ With a local Angular dev server:
 
 ```bash
 set UMAMOE_FRONTEND_ORIGIN=http://127.0.0.1:4200
-set UMAMOE_API_BASE_URL=http://127.0.0.1:3001
+set UMAMOE_API_BASE_URL=http://127.0.0.1:3201
 set UMAMOE_SEARCH_BASE_URL=http://127.0.0.1:3002
 set UMAMOE_RESOURCES_BASE_URL=http://127.0.0.1:3004/resources
 cargo run

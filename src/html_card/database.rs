@@ -9,11 +9,10 @@ pub(super) const CLASS_NAME: &str = "card-view-database";
 const DEFAULT_ASSET_BASE: &str = "https://uma.moe/assets";
 
 pub(super) fn renders_full_card(meta: &EmbedMetadata) -> bool {
-    meta.database.is_some()
-        || matches!(
-            super::canonical_path(&meta.canonical_url).as_str(),
-            "/database" | "/inheritance" | "/support-cards"
-        )
+    let path = super::canonical_path(&meta.canonical_url);
+    let route_path = super::normalize_route_path(&path);
+
+    meta.database.is_some() || matches!(route_path, "/database" | "/inheritance" | "/support-cards")
 }
 
 pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
