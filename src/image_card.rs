@@ -245,7 +245,7 @@ fn accent_for_kind(kind: &str) -> Color {
 
 #[cfg(test)]
 mod tests {
-    use crate::embed::{EmbedMetadata, EmbedMetric};
+    use crate::embed::{EmbedMetadata, EmbedMetric, ResourceCatalog};
 
     use super::*;
 
@@ -262,6 +262,9 @@ mod tests {
                 label: "Rank".to_string(),
                 value: "#42".to_string(),
             }],
+            database: None,
+            tierlist: None,
+            resources: ResourceCatalog::default(),
         };
 
         let bytes = render_png(&meta).expect("card renders");

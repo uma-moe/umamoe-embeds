@@ -1,0 +1,457 @@
+name: Build And Deploy Embeds
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PLATFORM: linux/amd64
+  DEPLOY_USER: github
+  REMOTE_IMAGE_DIR: /tmp/umamoe-embeds-images
+  IMAGE_NAME: umamoe-embeds
+  PROD_CONTAINER_NAME: umamoe-embeds
+  BETA_CONTAINER_NAME: umamoe-embeds-beta
+  PROD_ENV_FILE: /opt/umamoe-embeds/env
+  BETA_ENV_FILE: /opt/umamoe-embeds-beta/env
+  APP_PORT: '8080'
+  BETA_HOST_PORT: '3108'
+  PROD_HOST_PORT: '3008'
+  SHARED_NETWORK_NAME: umamoe-services
+  PROD_SHARED_SERVICE_ALIAS: umamoe-embeds
+  BETA_SHARED_SERVICE_ALIAS: umamoe-embeds-beta
+  PROD_PUBLIC_BASE_URL: https://uma.moe
+  BETA_PUBLIC_BASE_URL: https://beta.uma.moe
+  PROD_ASSET_BASE_URL: https://uma.moe/assets
+  BETA_ASSET_BASE_URL: https://beta.uma.moe/assets
+  PROD_API_BASE_URL: http://umamoe-backend
+  BETA_API_BASE_URL: http://umamoe-backend-beta
+  PROD_SEARCH_BASE_URL: http://umamoe-search:3202
+  BETA_SEARCH_BASE_URL: http://umamoe-search-beta:3202
+  PROD_RESOURCES_BASE_URL: http://umamoe-resources:3204/resources
+  BETA_RESOURCES_BASE_URL: http://umamoe-resources-beta:3204/resources
+
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Embeds Image
+    runs-on: ubuntu-latest
+    outputs:
+      archive_name: ${{ steps.meta.outputs.archive_name }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="${IMAGE_NAME}:${GITHUB_SHA}"
+          archive_name="${IMAGE_NAME}-${GITHUB_SHA}.tar.gz"
+
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          echo "archive_name=$archive_name" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build embeds image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ env.PLATFORM }}
+          load: true
+          tags: ${{ steps.meta.outputs.image_tag }}
+          cache-from: type=gha,scope=umamoe-embeds-image
+          cache-to: type=gha,mode=max,scope=umamoe-embeds-image
+
+      - name: Save embeds image
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save "${{ steps.meta.outputs.image_tag }}" | gzip -1 > "${{ runner.temp }}/${{ steps.meta.outputs.archive_name }}"
+
+      - name: Upload embeds image artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: umamoe-embeds-image
+          path: ${{ runner.temp }}/${{ steps.meta.outputs.archive_name }}
+          if-no-files-found: error
+
+  deploy_beta:
+    name: Deploy Beta
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: beta
+
+    steps:
+      - name: Download embeds image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: umamoe-embeds-image
+          path: ${{ runner.temp }}
+
+      - name: Mask deployment metadata
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          mask_value() {
+            local value="$1"
+            if [[ -n "$value" ]]; then
+              echo "::add-mask::$value"
+            fi
+          }
+
+          mask_value "$DEPLOY_HOST"
+
+          while IFS= read -r known_host_line; do
+            mask_value "$known_host_line"
+            read -r known_host _ key_body _ <<< "$known_host_line"
+            mask_value "$known_host"
+            mask_value "$key_body"
+          done <<< "$DEPLOY_KNOWN_HOSTS"
+
+      - name: Start SSH agent
+        shell: bash
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          eval "$(ssh-agent -s)" >/dev/null
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
+          ssh-add - <<< "$DEPLOY_SSH_KEY" >/dev/null 2>&1
+
+      - name: Configure known hosts
+        shell: bash
+        env:
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          if [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
+            echo "DEPLOY_KNOWN_HOSTS is required for deploy host verification." >&2
+            exit 1
+          fi
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy beta container
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          ARCHIVE_NAME: ${{ needs.build.outputs.archive_name }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          HOST_PORT: ${{ env.BETA_HOST_PORT }}
+          CONTAINER_NAME: ${{ env.BETA_CONTAINER_NAME }}
+          APP_PORT: ${{ env.APP_PORT }}
+          ENV_FILE: ${{ env.BETA_ENV_FILE }}
+          SHARED_NETWORK_NAME: ${{ env.SHARED_NETWORK_NAME }}
+          SHARED_SERVICE_ALIAS: ${{ env.BETA_SHARED_SERVICE_ALIAS }}
+          PUBLIC_BASE_URL: ${{ env.BETA_PUBLIC_BASE_URL }}
+          ASSET_BASE_URL: ${{ env.BETA_ASSET_BASE_URL }}
+          API_BASE_URL: ${{ env.BETA_API_BASE_URL }}
+          SEARCH_BASE_URL: ${{ env.BETA_SEARCH_BASE_URL }}
+          RESOURCES_BASE_URL: ${{ env.BETA_RESOURCES_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          remote_archive="${REMOTE_IMAGE_DIR}/${ARCHIVE_NAME}"
+
+          ssh -o LogLevel=ERROR -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$REMOTE_IMAGE_DIR'"
+          rsync -az -e "ssh -o LogLevel=ERROR -p $DEPLOY_PORT" "${{ runner.temp }}/${ARCHIVE_NAME}" "$DEPLOY_USER@$DEPLOY_HOST:$remote_archive"
+
+          ssh -o LogLevel=ERROR -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' -- \
+            "$remote_archive" "$IMAGE_TAG" "$CONTAINER_NAME" "$APP_PORT" "$HOST_PORT" "$ENV_FILE" "$SHARED_NETWORK_NAME" "$SHARED_SERVICE_ALIAS" "$PUBLIC_BASE_URL" "$ASSET_BASE_URL" "$API_BASE_URL" "$SEARCH_BASE_URL" "$RESOURCES_BASE_URL" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+
+          archive="$1"
+          image_tag="$2"
+          container_name="$3"
+          app_port="$4"
+          host_port="$5"
+          env_file="$6"
+          shared_network_name="$7"
+          shared_service_alias="$8"
+          public_base_url="$9"
+          asset_base_url="${10}"
+          api_base_url="${11}"
+          search_base_url="${12}"
+          resources_base_url="${13}"
+
+          if [ ! -f "$env_file" ]; then
+            echo "Missing container env file: $env_file" >&2
+            exit 1
+          fi
+
+          if ! grep -Eq '^[[:space:]]*UMAMOE_FRONTEND_ORIGIN=' "$env_file"; then
+            echo "Missing UMAMOE_FRONTEND_ORIGIN in $env_file" >&2
+            exit 1
+          fi
+
+          gzip -dc "$archive" | docker load
+          docker network create "$shared_network_name" >/dev/null 2>&1 || true
+
+          docker rm -f "$container_name" >/dev/null 2>&1 || true
+          docker run -d \
+            --name "$container_name" \
+            --restart unless-stopped \
+            --network "$shared_network_name" \
+            --network-alias "$shared_service_alias" \
+            --add-host host.docker.internal:host-gateway \
+            --env-file "$env_file" \
+            -e UMAMOE_EMBEDS_BIND="0.0.0.0:${app_port}" \
+            -e UMAMOE_PUBLIC_BASE_URL="$public_base_url" \
+            -e UMAMOE_ASSET_BASE_URL="$asset_base_url" \
+            -e UMAMOE_API_BASE_URL="$api_base_url" \
+            -e UMAMOE_SEARCH_BASE_URL="$search_base_url" \
+            -e UMAMOE_RESOURCES_BASE_URL="$resources_base_url" \
+            -p "127.0.0.1:${host_port}:${app_port}" \
+            "$image_tag"
+
+          for _ in $(seq 1 60); do
+            running="$(docker inspect --format '{{.State.Running}}' "$container_name" 2>/dev/null || true)"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true)"
+
+            if [ "$health" = "healthy" ]; then
+              break
+            fi
+
+            if [ "$running" != "true" ]; then
+              docker logs --tail=120 "$container_name" || true
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true)"
+          if [ "$health" != "healthy" ]; then
+            docker logs --tail=120 "$container_name" || true
+            exit 1
+          fi
+
+          if command -v curl >/dev/null 2>&1; then
+            for _ in $(seq 1 15); do
+              if curl -fsS "http://127.0.0.1:${host_port}/healthz" >/dev/null; then
+                rm -f "$archive"
+                docker image prune -f --filter "until=168h" >/dev/null 2>&1 || true
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "Host health check failed for $container_name on port $host_port" >&2
+            docker logs --tail=120 "$container_name" || true
+            exit 1
+          fi
+
+          rm -f "$archive"
+          docker image prune -f --filter "until=168h" >/dev/null 2>&1 || true
+          REMOTE_SCRIPT
+
+  deploy_production:
+    name: Deploy Production
+    if: always() && github.event_name != 'pull_request' && needs.deploy_beta.result == 'success'
+    needs:
+      - build
+      - deploy_beta
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Download embeds image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: umamoe-embeds-image
+          path: ${{ runner.temp }}
+
+      - name: Mask deployment metadata
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          mask_value() {
+            local value="$1"
+            if [[ -n "$value" ]]; then
+              echo "::add-mask::$value"
+            fi
+          }
+
+          mask_value "$DEPLOY_HOST"
+
+          while IFS= read -r known_host_line; do
+            mask_value "$known_host_line"
+            read -r known_host _ key_body _ <<< "$known_host_line"
+            mask_value "$known_host"
+            mask_value "$key_body"
+          done <<< "$DEPLOY_KNOWN_HOSTS"
+
+      - name: Start SSH agent
+        shell: bash
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          eval "$(ssh-agent -s)" >/dev/null
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
+          ssh-add - <<< "$DEPLOY_SSH_KEY" >/dev/null 2>&1
+
+      - name: Configure known hosts
+        shell: bash
+        env:
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          if [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
+            echo "DEPLOY_KNOWN_HOSTS is required for deploy host verification." >&2
+            exit 1
+          fi
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy production container
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          ARCHIVE_NAME: ${{ needs.build.outputs.archive_name }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          HOST_PORT: ${{ env.PROD_HOST_PORT }}
+          CONTAINER_NAME: ${{ env.PROD_CONTAINER_NAME }}
+          APP_PORT: ${{ env.APP_PORT }}
+          ENV_FILE: ${{ env.PROD_ENV_FILE }}
+          SHARED_NETWORK_NAME: ${{ env.SHARED_NETWORK_NAME }}
+          SHARED_SERVICE_ALIAS: ${{ env.PROD_SHARED_SERVICE_ALIAS }}
+          PUBLIC_BASE_URL: ${{ env.PROD_PUBLIC_BASE_URL }}
+          ASSET_BASE_URL: ${{ env.PROD_ASSET_BASE_URL }}
+          API_BASE_URL: ${{ env.PROD_API_BASE_URL }}
+          SEARCH_BASE_URL: ${{ env.PROD_SEARCH_BASE_URL }}
+          RESOURCES_BASE_URL: ${{ env.PROD_RESOURCES_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          remote_archive="${REMOTE_IMAGE_DIR}/${ARCHIVE_NAME}"
+
+          ssh -o LogLevel=ERROR -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$REMOTE_IMAGE_DIR'"
+          rsync -az -e "ssh -o LogLevel=ERROR -p $DEPLOY_PORT" "${{ runner.temp }}/${ARCHIVE_NAME}" "$DEPLOY_USER@$DEPLOY_HOST:$remote_archive"
+
+          ssh -o LogLevel=ERROR -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' -- \
+            "$remote_archive" "$IMAGE_TAG" "$CONTAINER_NAME" "$APP_PORT" "$HOST_PORT" "$ENV_FILE" "$SHARED_NETWORK_NAME" "$SHARED_SERVICE_ALIAS" "$PUBLIC_BASE_URL" "$ASSET_BASE_URL" "$API_BASE_URL" "$SEARCH_BASE_URL" "$RESOURCES_BASE_URL" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+
+          archive="$1"
+          image_tag="$2"
+          container_name="$3"
+          app_port="$4"
+          host_port="$5"
+          env_file="$6"
+          shared_network_name="$7"
+          shared_service_alias="$8"
+          public_base_url="$9"
+          asset_base_url="${10}"
+          api_base_url="${11}"
+          search_base_url="${12}"
+          resources_base_url="${13}"
+
+          if [ ! -f "$env_file" ]; then
+            echo "Missing container env file: $env_file" >&2
+            exit 1
+          fi
+
+          if ! grep -Eq '^[[:space:]]*UMAMOE_FRONTEND_ORIGIN=' "$env_file"; then
+            echo "Missing UMAMOE_FRONTEND_ORIGIN in $env_file" >&2
+            exit 1
+          fi
+
+          gzip -dc "$archive" | docker load
+          docker network create "$shared_network_name" >/dev/null 2>&1 || true
+
+          docker rm -f "$container_name" >/dev/null 2>&1 || true
+          docker run -d \
+            --name "$container_name" \
+            --restart unless-stopped \
+            --network "$shared_network_name" \
+            --network-alias "$shared_service_alias" \
+            --add-host host.docker.internal:host-gateway \
+            --env-file "$env_file" \
+            -e UMAMOE_EMBEDS_BIND="0.0.0.0:${app_port}" \
+            -e UMAMOE_PUBLIC_BASE_URL="$public_base_url" \
+            -e UMAMOE_ASSET_BASE_URL="$asset_base_url" \
+            -e UMAMOE_API_BASE_URL="$api_base_url" \
+            -e UMAMOE_SEARCH_BASE_URL="$search_base_url" \
+            -e UMAMOE_RESOURCES_BASE_URL="$resources_base_url" \
+            -p "127.0.0.1:${host_port}:${app_port}" \
+            "$image_tag"
+
+          for _ in $(seq 1 60); do
+            running="$(docker inspect --format '{{.State.Running}}' "$container_name" 2>/dev/null || true)"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true)"
+
+            if [ "$health" = "healthy" ]; then
+              break
+            fi
+
+            if [ "$running" != "true" ]; then
+              docker logs --tail=120 "$container_name" || true
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true)"
+          if [ "$health" != "healthy" ]; then
+            docker logs --tail=120 "$container_name" || true
+            exit 1
+          fi
+
+          if command -v curl >/dev/null 2>&1; then
+            for _ in $(seq 1 15); do
+              if curl -fsS "http://127.0.0.1:${host_port}/healthz" >/dev/null; then
+                rm -f "$archive"
+                docker image prune -f --filter "until=168h" >/dev/null 2>&1 || true
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "Host health check failed for $container_name on port $host_port" >&2
+            docker logs --tail=120 "$container_name" || true
+            exit 1
+          fi
+
+          rm -f "$archive"
+          docker image prune -f --filter "until=168h" >/dev/null 2>&1 || true
+          REMOTE_SCRIPT

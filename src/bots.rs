@@ -23,7 +23,7 @@ fn is_embed_bot(headers: &HeaderMap, config: &Config) -> bool {
         .any(|token| user_agent.contains(&token))
 }
 
-fn has_debug_query(uri: &Uri, debug_query_key: &str) -> bool {
+pub fn has_debug_query(uri: &Uri, debug_query_key: &str) -> bool {
     let Some(query) = uri.query() else {
         return false;
     };
@@ -45,9 +45,17 @@ mod tests {
             bind_addr: "127.0.0.1:8080".parse().unwrap(),
             public_base_url: "https://uma.moe".to_string(),
             frontend_origin: "http://127.0.0.1:4200".to_string(),
-            api_base_url: "https://uma.moe".to_string(),
+            asset_base_url: "https://uma.moe/assets".to_string(),
+            api_base_url: "http://umamoe-backend:3001".to_string(),
+            search_base_url: "http://umamoe-search:3202".to_string(),
+            resources_base_url: "http://umamoe-resources:3204/resources".to_string(),
+            resources_api_token: None,
             bot_user_agent_tokens: vec!["Discordbot".to_string(), "Slackbot".to_string()],
             debug_query_key: "__embed".to_string(),
+            image_cache_max_age: std::time::Duration::from_secs(300),
+            image_cache_stale_while_revalidate: std::time::Duration::from_secs(86_400),
+            image_cache_max_entries: 256,
+            render_max_concurrency: 1,
         }
     }
 

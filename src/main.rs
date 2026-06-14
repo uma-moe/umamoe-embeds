@@ -1,10 +1,15 @@
 mod bots;
 mod config;
 mod embed;
+mod html_card;
 mod image_card;
 mod proxy;
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result};
 use axum::{
@@ -15,22 +20,46 @@ use axum::{
     Router,
 };
 use reqwest::Client;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
-    bots::should_render_embed,
+    bots::{has_debug_query, should_render_embed},
     config::Config,
     embed::{metadata_for_image, metadata_for_path, render_embed_html},
-    image_card::render_png,
     proxy::{plain_response, proxy_request},
 };
 
-#[derive(Clone)]
 struct AppState {
     config: Config,
     client: Client,
+    html_renderer: html_card::HtmlRenderer,
+    image_cache: ImageCache,
+}
+
+struct ImageCache {
+    entries: Mutex<HashMap<String, CachedImage>>,
+    max_entries: usize,
+    render_permits: Arc<Semaphore>,
+}
+
+#[derive(Clone)]
+struct CachedImage {
+    bytes: Bytes,
+    stored_at: Instant,
+}
+
+struct RenderedImage {
+    bytes: Vec<u8>,
+    cacheable: bool,
+}
+
+enum CacheLookup {
+    Fresh(Bytes),
+    Stale(Bytes),
+    Missing,
 }
 
 #[tokio::main]
@@ -46,7 +75,20 @@ async fn main() -> Result<()> {
         .build()
         .context("failed to build HTTP client")?;
 
-    let state = Arc::new(AppState { config, client });
+    let html_renderer = html_card::HtmlRenderer::new();
+    html_renderer.warm_up();
+
+    let image_cache = ImageCache::new(
+        config.image_cache_max_entries,
+        config.render_max_concurrency,
+    );
+
+    let state = Arc::new(AppState {
+        config,
+        client,
+        html_renderer,
+        image_cache,
+    });
 
     let app = Router::new()
         .route("/healthz", get(healthz))
@@ -85,8 +127,11 @@ async fn page_handler(
     if (method == Method::GET || method == Method::HEAD)
         && should_render_embed(&headers, &uri, &state.config)
     {
-        if let Some(meta) = metadata_for_path(&state.client, &state.config, uri.path()).await {
-            let html = render_embed_html(&meta);
+        if let Some(meta) =
+            metadata_for_path(&state.client, &state.config, uri.path(), uri.query()).await
+        {
+            let redirect_humans = !has_debug_query(&uri, &state.config.debug_query_key);
+            let html = render_embed_html(&meta, redirect_humans);
             return embed_html_response(method, html);
         }
     }
@@ -97,13 +142,64 @@ async fn page_handler(
 async fn image_handler(
     State(state): State<Arc<AppState>>,
     Path((kind, id)): Path<(String, String)>,
+    uri: Uri,
 ) -> Response<Body> {
-    let Some(meta) = metadata_for_image(&state.client, &state.config, &kind, &id).await else {
+    let cache_key = image_cache_key(&uri);
+    match state.image_cache.get(
+        &cache_key,
+        state.config.image_cache_max_age,
+        state.config.image_cache_stale_while_revalidate,
+    ) {
+        CacheLookup::Fresh(bytes) => {
+            return image_response(&state.config, Method::GET, Some(bytes));
+        }
+        CacheLookup::Stale(bytes) => {
+            if let Some(permit) = state.image_cache.try_acquire_render() {
+                let state = state.clone();
+                let cache_key = cache_key.clone();
+                let kind = kind.clone();
+                let id = id.clone();
+                let query = uri.query().map(str::to_string);
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    refresh_image_cache(state, cache_key, kind, id, query).await;
+                });
+            }
+
+            return image_response(&state.config, Method::GET, Some(bytes));
+        }
+        CacheLookup::Missing => {}
+    }
+
+    let render_permit = state.image_cache.try_acquire_render();
+    let Some(meta) =
+        metadata_for_image(&state.client, &state.config, &kind, &id, uri.query()).await
+    else {
         return plain_response(StatusCode::NOT_FOUND, "Unknown embed image.");
     };
 
-    match render_png(&meta) {
-        Ok(bytes) => image_response(Method::GET, Some(bytes)),
+    let bytes = match render_permit {
+        Some(permit) => {
+            let _permit = permit;
+            render_image_bytes(&state, &meta).await
+        }
+        None => {
+            warn!(%cache_key, "embed image renderer is busy; using fallback image renderer");
+            image_card::render_png(&meta).map(|bytes| RenderedImage {
+                bytes,
+                cacheable: false,
+            })
+        }
+    };
+
+    match bytes {
+        Ok(rendered) => {
+            let bytes = Bytes::from(rendered.bytes);
+            if rendered.cacheable {
+                state.image_cache.insert(cache_key, bytes.clone());
+            }
+            image_response(&state.config, Method::GET, Some(bytes))
+        }
         Err(error) => {
             warn!(%error, "failed to render embed image");
             plain_response(
@@ -114,8 +210,8 @@ async fn image_handler(
     }
 }
 
-async fn image_head_handler() -> Response<Body> {
-    image_response(Method::HEAD, None)
+async fn image_head_handler(State(state): State<Arc<AppState>>) -> Response<Body> {
+    image_response(&state.config, Method::HEAD, None)
 }
 
 fn embed_html_response(method: Method, html: String) -> Response<Body> {
@@ -134,7 +230,7 @@ fn embed_html_response(method: Method, html: String) -> Response<Body> {
         .expect("embed HTML response is valid")
 }
 
-fn image_response(method: Method, bytes: Option<Vec<u8>>) -> Response<Body> {
+fn image_response(config: &Config, method: Method, bytes: Option<Bytes>) -> Response<Body> {
     let body = if method == Method::HEAD {
         Body::empty()
     } else {
@@ -144,12 +240,120 @@ fn image_response(method: Method, bytes: Option<Vec<u8>>) -> Response<Body> {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "image/png")
-        .header(
-            header::CACHE_CONTROL,
-            "public, max-age=300, stale-while-revalidate=86400",
-        )
+        .header(header::CACHE_CONTROL, image_cache_control(config))
         .body(body)
         .expect("image response is valid")
+}
+
+async fn refresh_image_cache(
+    state: Arc<AppState>,
+    cache_key: String,
+    kind: String,
+    id: String,
+    query: Option<String>,
+) {
+    let Some(meta) =
+        metadata_for_image(&state.client, &state.config, &kind, &id, query.as_deref()).await
+    else {
+        return;
+    };
+
+    match render_image_bytes(&state, &meta).await {
+        Ok(rendered) if rendered.cacheable => state
+            .image_cache
+            .insert(cache_key, Bytes::from(rendered.bytes)),
+        Ok(_) => warn!(%cache_key, "skipping cache refresh for fallback embed image"),
+        Err(error) => warn!(%error, "failed to refresh stale embed image cache entry"),
+    }
+}
+
+async fn render_image_bytes(
+    state: &AppState,
+    meta: &embed::EmbedMetadata,
+) -> anyhow::Result<RenderedImage> {
+    match state.html_renderer.render_png(meta).await {
+        Ok(bytes) => Ok(RenderedImage {
+            bytes,
+            cacheable: true,
+        }),
+        Err(error) => {
+            warn!(%error, "failed to render html embed image; falling back to rust image renderer");
+            image_card::render_png(meta).map(|bytes| RenderedImage {
+                bytes,
+                cacheable: false,
+            })
+        }
+    }
+}
+
+fn image_cache_key(uri: &Uri) -> String {
+    uri.path_and_query()
+        .map(|path_and_query| path_and_query.as_str().to_string())
+        .unwrap_or_else(|| uri.path().to_string())
+}
+
+fn image_cache_control(config: &Config) -> String {
+    format!(
+        "public, max-age={}, stale-while-revalidate={}",
+        config.image_cache_max_age.as_secs(),
+        config.image_cache_stale_while_revalidate.as_secs()
+    )
+}
+
+impl ImageCache {
+    fn new(max_entries: usize, render_max_concurrency: usize) -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            max_entries,
+            render_permits: Arc::new(Semaphore::new(render_max_concurrency)),
+        }
+    }
+
+    fn get(&self, key: &str, fresh_for: Duration, stale_for: Duration) -> CacheLookup {
+        let Ok(entries) = self.entries.lock() else {
+            return CacheLookup::Missing;
+        };
+        let Some(entry) = entries.get(key) else {
+            return CacheLookup::Missing;
+        };
+
+        let age = entry.stored_at.elapsed();
+        if age <= fresh_for {
+            CacheLookup::Fresh(entry.bytes.clone())
+        } else if age <= fresh_for + stale_for {
+            CacheLookup::Stale(entry.bytes.clone())
+        } else {
+            CacheLookup::Missing
+        }
+    }
+
+    fn insert(&self, key: String, bytes: Bytes) {
+        let Ok(mut entries) = self.entries.lock() else {
+            return;
+        };
+
+        if entries.len() >= self.max_entries && !entries.contains_key(&key) {
+            if let Some(oldest_key) = entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.stored_at)
+                .map(|(key, _)| key.clone())
+            {
+                entries.remove(&oldest_key);
+            }
+        }
+
+        entries.insert(
+            key,
+            CachedImage {
+                bytes,
+                stored_at: Instant::now(),
+            },
+        );
+    }
+
+    fn try_acquire_render(&self) -> Option<OwnedSemaphorePermit> {
+        self.render_permits.clone().try_acquire_owned().ok()
+    }
 }
 
 fn init_tracing() {

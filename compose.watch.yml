@@ -1,0 +1,9 @@
+services:
+  embeds:
+    develop:
+      watch:
+        - action: rebuild
+          path: ../umamoe-embeds
+          ignore:
+            - target/
+            - .git/
