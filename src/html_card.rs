@@ -37,8 +37,8 @@ mod tools;
 
 const WIDTH: u32 = 1200;
 const HEIGHT: u32 = 630;
-const CHROMIUM_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
-const CHROMIUM_RENDER_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_CHROMIUM_STARTUP_TIMEOUT_SECONDS: u64 = 45;
+const DEFAULT_CHROMIUM_RENDER_TIMEOUT_SECONDS: u64 = 15;
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 12 * 1024 * 1024;
 static RENDER_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -211,17 +211,34 @@ impl ChromiumProcess {
                 "--headless=new",
                 "--disable-background-networking",
                 "--disable-breakpad",
+                "--disable-client-side-phishing-detection",
+                "--disable-component-update",
                 "--disable-crash-reporter",
+                "--disable-default-apps",
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
+                "--disable-domain-reliability",
                 "--disable-extensions",
+                "--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication",
+                "--disable-hang-monitor",
+                "--disable-namespace-sandbox",
+                "--disable-popup-blocking",
+                "--disable-prompt-on-repost",
+                "--disable-renderer-backgrounding",
+                "--disable-seccomp-filter-sandbox",
                 "--disable-setuid-sandbox",
+                "--disable-sync",
                 "--hide-scrollbars",
+                "--metrics-recording-only",
                 "--mute-audio",
+                "--no-default-browser-check",
                 "--no-first-run",
                 "--no-sandbox",
+                "--no-zygote",
+                "--password-store=basic",
                 "--remote-debugging-address=127.0.0.1",
                 "--run-all-compositor-stages-before-draw",
+                "--use-mock-keychain",
                 "--force-device-scale-factor=1",
                 &window_size_arg,
                 &profile_arg,
@@ -250,6 +267,7 @@ impl ChromiumProcess {
     }
 
     fn wait_until_ready(&mut self) -> Result<()> {
+        let startup_timeout = chromium_startup_timeout();
         let started_at = SystemTime::now();
         loop {
             if let Some(status) = self.child.try_wait()? {
@@ -262,11 +280,11 @@ impl ChromiumProcess {
                 return Ok(());
             }
 
-            if started_at.elapsed().unwrap_or_default() > CHROMIUM_STARTUP_TIMEOUT {
+            if started_at.elapsed().unwrap_or_default() > startup_timeout {
                 return Err(anyhow!(
                     "Chromium did not expose DevTools on 127.0.0.1:{} within {:?}",
                     self.port,
-                    CHROMIUM_STARTUP_TIMEOUT
+                    startup_timeout
                 ));
             }
 
@@ -366,8 +384,9 @@ impl DevToolsSocket {
         };
         let mut stream = TcpStream::connect((host, port))
             .with_context(|| format!("failed to connect to Chromium websocket at {host}:{port}"))?;
-        stream.set_read_timeout(Some(CHROMIUM_RENDER_TIMEOUT))?;
-        stream.set_write_timeout(Some(CHROMIUM_RENDER_TIMEOUT))?;
+        let render_timeout = chromium_render_timeout();
+        stream.set_read_timeout(Some(render_timeout))?;
+        stream.set_write_timeout(Some(render_timeout))?;
 
         let key = websocket_key();
         let request = format!(
@@ -3298,11 +3317,34 @@ fn chromium_debug_port() -> Result<u16> {
     Ok(port)
 }
 
+fn chromium_startup_timeout() -> Duration {
+    duration_from_env(
+        "UMAMOE_EMBEDS_CHROMIUM_STARTUP_TIMEOUT_SECONDS",
+        DEFAULT_CHROMIUM_STARTUP_TIMEOUT_SECONDS,
+    )
+}
+
+fn chromium_render_timeout() -> Duration {
+    duration_from_env(
+        "UMAMOE_EMBEDS_CHROMIUM_RENDER_TIMEOUT_SECONDS",
+        DEFAULT_CHROMIUM_RENDER_TIMEOUT_SECONDS,
+    )
+}
+
+fn duration_from_env(name: &str, default_seconds: u64) -> Duration {
+    env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(default_seconds))
+}
+
 fn http_request(port: u16, method: &str, path: &str) -> Result<String> {
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .with_context(|| format!("failed to connect to Chromium DevTools on port {port}"))?;
-    stream.set_read_timeout(Some(CHROMIUM_RENDER_TIMEOUT))?;
-    stream.set_write_timeout(Some(CHROMIUM_RENDER_TIMEOUT))?;
+    let render_timeout = chromium_render_timeout();
+    stream.set_read_timeout(Some(render_timeout))?;
+    stream.set_write_timeout(Some(render_timeout))?;
 
     let request = format!(
         "{method} {path} HTTP/1.1\r\n\
