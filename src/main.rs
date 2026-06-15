@@ -131,6 +131,17 @@ async fn page_handler(
         && should_render_embed(&headers, &uri, &state.config)
     {
         let started_at = Instant::now();
+        let user_agent = headers
+            .get(header::USER_AGENT)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        debug!(
+            method = %method,
+            path = uri.path(),
+            query = uri.query().unwrap_or_default(),
+            user_agent = %user_agent,
+            "embed HTML request received"
+        );
         if let Some(meta) =
             metadata_for_path(&state.client, &state.config, uri.path(), uri.query()).await
         {
@@ -164,9 +175,21 @@ async fn image_handler(
     State(state): State<Arc<AppState>>,
     Path((kind, id)): Path<(String, String)>,
     uri: Uri,
+    headers: HeaderMap,
 ) -> Response<Body> {
     let request_started_at = Instant::now();
     let cache_key = image_cache_key(&uri);
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    debug!(
+        %cache_key,
+        kind = %kind,
+        id = %id,
+        user_agent = %user_agent,
+        "embed image request received"
+    );
     match state.image_cache.get(
         &cache_key,
         state.config.image_cache_max_age,
