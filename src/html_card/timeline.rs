@@ -960,7 +960,11 @@ fn timeline_card_from_event(
         .as_deref()
         .and_then(parse_resource_date)
         .unwrap_or(start);
-    let mut details = Vec::new();
+    let mut details = event
+        .description
+        .as_deref()
+        .map(timeline_description_lines)
+        .unwrap_or_default();
     if !event.is_confirmed {
         if let Some(score) = event.prediction_likelihood {
             details.push(format!(
@@ -984,7 +988,7 @@ fn timeline_card_from_event(
         image_path: event
             .image_path
             .as_deref()
-            .map(normalize_timeline_asset_path)
+            .map(|path| normalize_timeline_asset_path(path, &event.event_type))
             .unwrap_or_default(),
         participants: timeline_participants_from_event(event),
     })
@@ -1025,13 +1029,35 @@ fn timeline_participants_from_event(event: &TimelineEventDetails) -> Vec<Timelin
         .collect()
 }
 
-fn normalize_timeline_asset_path(path: &str) -> String {
-    let normalized = path
+fn normalize_timeline_asset_path(path: &str, event_type: &str) -> String {
+    let mut normalized = path
         .trim()
         .trim_start_matches('/')
         .strip_prefix("assets/")
         .unwrap_or_else(|| path.trim().trim_start_matches('/'))
         .to_string();
+
+    if normalized.starts_with("http://") || normalized.starts_with("https://") {
+        return normalized;
+    }
+
+    if !normalized.contains('/') {
+        normalized = match event_type {
+            "story_event" => format!("images/story/{normalized}"),
+            "character_banner" => format!("images/character/banner/{normalized}"),
+            "support_card_banner" => format!("images/support/banner/{normalized}"),
+            "paid_banner" => format!("images/paid/banner/{normalized}"),
+            _ => normalized,
+        };
+    } else if !normalized.starts_with("images/") {
+        normalized = match normalized.as_str() {
+            path if path.starts_with("story/") => format!("images/{path}"),
+            path if path.starts_with("character/banner/") => format!("images/{path}"),
+            path if path.starts_with("support/banner/") => format!("images/{path}"),
+            path if path.starts_with("paid/banner/") => format!("images/{path}"),
+            _ => normalized,
+        };
+    }
 
     if normalized.ends_with(".png")
         && (normalized.contains("/character/banner/")
@@ -1042,6 +1068,38 @@ fn normalize_timeline_asset_path(path: &str) -> String {
     } else {
         normalized
     }
+}
+
+fn timeline_description_lines(description: &str) -> Vec<String> {
+    let mut text = description.to_string();
+    for tag in ["<br>", "<br/>", "<br />", "<BR>", "<BR/>", "<BR />"] {
+        text = text.replace(tag, "\n");
+    }
+
+    let mut stripped = String::with_capacity(text.len());
+    let mut in_tag = false;
+    for ch in text.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => stripped.push(ch),
+            _ => {}
+        }
+    }
+
+    stripped
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(4)
+        .map(str::to_string)
+        .collect()
 }
 
 fn dynamic_subline(dates: &[SimpleDate]) -> String {
@@ -1554,4 +1612,39 @@ fn render_visual(_meta: &EmbedMetadata) -> String {
         <div class="timeline-event-card event-story node-c"><span>Story Event</span><b>Summer Walk</b><small>Jun 12</small></div>
       </div>"#
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn story_event_filename_normalizes_to_story_asset_path() {
+        assert_eq!(
+            normalize_timeline_asset_path("06_seek_solve_summer_walk_banner.webp", "story_event"),
+            "images/story/06_seek_solve_summer_walk_banner.webp"
+        );
+        assert_eq!(
+            timeline_event_art_url(
+                "https://uma.moe/assets",
+                "https://beta.uma.moe",
+                "images/story/06_seek_solve_summer_walk_banner.webp"
+            ),
+            "https://beta.uma.moe/assets/images/story/06_seek_solve_summer_walk_banner.webp"
+        );
+    }
+
+    #[test]
+    fn timeline_description_lines_strip_breaks_and_tags() {
+        assert_eq!(
+            timeline_description_lines(
+                "Hanshin - Turf<br>2200m - Medium - Clockwise<br>Good - Summer - Cloudy</div>"
+            ),
+            vec![
+                "Hanshin - Turf".to_string(),
+                "2200m - Medium - Clockwise".to_string(),
+                "Good - Summer - Cloudy".to_string(),
+            ]
+        );
+    }
 }

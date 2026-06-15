@@ -67,6 +67,7 @@ pub struct TimelineEmbedDetails {
 pub struct TimelineEventDetails {
     pub event_type: String,
     pub title: String,
+    pub description: Option<String>,
     pub image_path: Option<String>,
     pub global_release_date: String,
     pub estimated_end_date: Option<String>,
@@ -1137,14 +1138,41 @@ struct BannerTimelineEventRaw {
     title: String,
     #[serde(
         default,
+        alias = "content",
+        alias = "detail",
+        alias = "details",
+        alias = "race_description",
+        alias = "raceDescription",
+        alias = "race_conditions",
+        alias = "raceConditions",
+        alias = "conditions"
+    )]
+    description: Option<String>,
+    #[serde(
+        default,
         alias = "image",
         alias = "imagePath",
         alias = "image_url",
         alias = "imageUrl",
+        alias = "image_webp",
+        alias = "imageWebp",
+        alias = "webp",
+        alias = "banner",
+        alias = "banner_url",
+        alias = "bannerUrl",
         alias = "banner_image",
         alias = "bannerImage",
         alias = "banner_image_path",
-        alias = "bannerImagePath"
+        alias = "bannerImagePath",
+        alias = "story_banner",
+        alias = "storyBanner",
+        alias = "story_image",
+        alias = "storyImage",
+        alias = "event_image",
+        alias = "eventImage",
+        alias = "thumbnail",
+        alias = "thumbnail_url",
+        alias = "thumbnailUrl"
     )]
     image_path: Option<String>,
     #[serde(default)]
@@ -6384,6 +6412,10 @@ fn timeline_event_from_raw(raw: BannerTimelineEventRaw) -> Option<TimelineEventD
     Some(TimelineEventDetails {
         event_type: event_type.to_string(),
         title: title.to_string(),
+        description: raw
+            .description
+            .map(|description| description.trim().to_string())
+            .filter(|description| !description.is_empty()),
         image_path: raw
             .image_path
             .map(|path| path.trim().to_string())
@@ -6464,23 +6496,8 @@ fn timeline_event_from_value(value: Value) -> Option<TimelineEventDetails> {
     Some(TimelineEventDetails {
         event_type: event_type.trim().to_string(),
         title: title.trim().to_string(),
-        image_path: string_field(
-            object,
-            &[
-                "image_path",
-                "imagePath",
-                "image",
-                "image_url",
-                "imageUrl",
-                "banner_image",
-                "bannerImage",
-                "banner_image_path",
-                "bannerImagePath",
-            ],
-        )
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(str::to_string),
+        description: timeline_description_from_value(object),
+        image_path: timeline_image_path_from_value(object),
         global_release_date: global_release_date.trim().to_string(),
         estimated_end_date: string_field(
             object,
@@ -6513,11 +6530,119 @@ fn timeline_event_from_value(value: Value) -> Option<TimelineEventDetails> {
     })
 }
 
+fn timeline_image_path_from_value(object: &serde_json::Map<String, Value>) -> Option<String> {
+    const IMAGE_KEYS: &[&str] = &[
+        "image_path",
+        "imagePath",
+        "image",
+        "image_url",
+        "imageUrl",
+        "image_webp",
+        "imageWebp",
+        "webp",
+        "banner",
+        "banner_url",
+        "bannerUrl",
+        "banner_image",
+        "bannerImage",
+        "banner_image_path",
+        "bannerImagePath",
+        "story_banner",
+        "storyBanner",
+        "story_image",
+        "storyImage",
+        "event_image",
+        "eventImage",
+        "thumbnail",
+        "thumbnail_url",
+        "thumbnailUrl",
+    ];
+    const IMAGE_OBJECT_KEYS: &[&str] = &["images", "image", "assets", "asset", "banner", "media"];
+    const NESTED_KEYS: &[&str] = &[
+        "path",
+        "url",
+        "src",
+        "href",
+        "webp",
+        "default",
+        "banner",
+        "banner_path",
+        "bannerPath",
+        "banner_url",
+        "bannerUrl",
+        "story",
+        "story_banner",
+        "storyBanner",
+        "event",
+    ];
+
+    string_field(object, IMAGE_KEYS)
+        .or_else(|| nested_string_field(object, IMAGE_OBJECT_KEYS, NESTED_KEYS))
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+}
+
+fn timeline_description_from_value(object: &serde_json::Map<String, Value>) -> Option<String> {
+    string_or_string_list_field(
+        object,
+        &[
+            "description",
+            "content",
+            "detail",
+            "details",
+            "race_description",
+            "raceDescription",
+            "race_conditions",
+            "raceConditions",
+            "conditions",
+            "condition",
+            "course_description",
+            "courseDescription",
+        ],
+    )
+    .map(|description| description.trim().to_string())
+    .filter(|description| !description.is_empty())
+}
+
 fn string_field<'a>(object: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
     keys.iter()
         .filter_map(|key| object.get(*key))
         .filter_map(Value::as_str)
         .find(|value| !value.trim().is_empty())
+}
+
+fn nested_string_field<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    object_keys: &[&str],
+    value_keys: &[&str],
+) -> Option<&'a str> {
+    object_keys
+        .iter()
+        .filter_map(|key| object.get(*key))
+        .filter_map(Value::as_object)
+        .find_map(|nested| string_field(nested, value_keys))
+}
+
+fn string_or_string_list_field(
+    object: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter()
+        .filter_map(|key| object.get(*key))
+        .find_map(|value| match value {
+            Value::String(value) if !value.trim().is_empty() => Some(value.trim().to_string()),
+            Value::Array(values) => {
+                let values = values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>();
+                (!values.is_empty()).then(|| values.join("\n"))
+            }
+            _ => None,
+        })
 }
 
 fn bool_field(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<bool> {
@@ -8150,6 +8275,7 @@ mod tests {
                 BannerTimelineEventRaw {
                     event_type: "character_banner".to_string(),
                     title: "Taiki Shuttle + Mejiro Dober".to_string(),
+                    description: None,
                     image_path: Some("assets/images/character/banner/2022_30098.png".to_string()),
                     global_release_date: Some("2026-06-12T22:00:00Z".to_string()),
                     estimated_end_date: Some("2026-06-22T21:59:59Z".to_string()),
@@ -8170,6 +8296,7 @@ mod tests {
                 BannerTimelineEventRaw {
                     event_type: "story_event".to_string(),
                     title: "Seek, Solve, Summer Walk!".to_string(),
+                    description: None,
                     image_path: Some(
                         "assets/images/story/06_seek_solve_summer_walk_banner.png".to_string(),
                     ),
@@ -8227,6 +8354,47 @@ mod tests {
         assert_eq!(
             details.events[0].image_path.as_deref(),
             Some("assets/images/story/06_seek_solve_summer_walk_banner.webp")
+        );
+    }
+
+    #[test]
+    fn banner_timeline_accepts_story_filename_and_champions_description() {
+        let details = timeline_details_from_value(serde_json::json!({
+            "events": [
+                {
+                    "type": "story_event",
+                    "title": "Seek, Solve, Summer Walk!",
+                    "story_banner": "06_seek_solve_summer_walk_banner.webp",
+                    "global_release_date": "2026-06-11T22:00:00Z"
+                },
+                {
+                    "type": "champions_meeting",
+                    "title": "Champions Meeting: Cancer Cup",
+                    "description": "Hanshin - Turf<br>2200m - Medium - Clockwise<br>Good - Summer - Cloudy</div>",
+                    "global_release_date": "2026-06-21T22:00:00Z"
+                }
+            ]
+        }))
+        .expect("timeline events should parse");
+
+        let story = details
+            .events
+            .iter()
+            .find(|event| event.event_type == "story_event")
+            .expect("story event should parse");
+        let champions = details
+            .events
+            .iter()
+            .find(|event| event.event_type == "champions_meeting")
+            .expect("champions meeting should parse");
+
+        assert_eq!(
+            story.image_path.as_deref(),
+            Some("06_seek_solve_summer_walk_banner.webp")
+        );
+        assert_eq!(
+            champions.description.as_deref(),
+            Some("Hanshin - Turf<br>2200m - Medium - Clockwise<br>Good - Summer - Cloudy</div>")
         );
     }
 
