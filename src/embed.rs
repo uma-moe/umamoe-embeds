@@ -11,7 +11,7 @@ use flate2::read::GzDecoder;
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use tracing::warn;
+use tracing::{debug, info, warn};
 use url::form_urlencoded;
 
 use crate::config::Config;
@@ -373,7 +373,7 @@ impl ProfileTeamStadiumMember {
     }
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize, Default)]
 struct SiteStatsResponse {
     #[serde(default)]
     today: TodayActivityStats,
@@ -381,13 +381,13 @@ struct SiteStatsResponse {
     freshness: DataFreshnessStats,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize, Default)]
 struct TodayActivityStats {
     #[serde(default)]
     tasks_24h: Option<i64>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize, Default)]
 struct DataFreshnessStats {
     #[serde(default)]
     accounts_24h: Option<i64>,
@@ -880,6 +880,16 @@ pub struct ResourceCatalog {
 }
 
 impl ResourceCatalog {
+    fn has_any_data(&self) -> bool {
+        !self.characters.is_empty()
+            || !self.factors.is_empty()
+            || !self.skills.is_empty()
+            || !self.support_cards.is_empty()
+            || self.affinity.is_some()
+            || !self.race_instance_saddles.is_empty()
+            || self.timeline.is_some()
+    }
+
     pub fn timeline(&self) -> Option<&TimelineEmbedDetails> {
         self.timeline.as_ref()
     }
@@ -1173,32 +1183,36 @@ struct BannerTimelineLikelihoodRaw {
 struct ResourceCacheEntry {
     base_url: String,
     token: Option<String>,
-    fetched_at: Instant,
     catalog: ResourceCatalog,
 }
 
 static RESOURCE_CACHE: OnceLock<Mutex<Option<ResourceCacheEntry>>> = OnceLock::new();
-const RESOURCE_CACHE_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Clone, Debug)]
 struct BannerTimelineCacheEntry {
     base_url: String,
     token: Option<String>,
-    fetched_at: Instant,
     details: Option<TimelineEmbedDetails>,
 }
 
 static BANNER_TIMELINE_CACHE: OnceLock<Mutex<Option<BannerTimelineCacheEntry>>> = OnceLock::new();
-const BANNER_TIMELINE_CACHE_TTL: Duration = Duration::from_secs(300);
+
+#[derive(Clone, Debug)]
+struct SiteStatsCacheEntry {
+    api_base_url: String,
+    fetched_at: Instant,
+    stats: SiteStatsResponse,
+}
+
+static SITE_STATS_CACHE: OnceLock<Mutex<Option<SiteStatsCacheEntry>>> = OnceLock::new();
+const SITE_STATS_CACHE_TTL: Duration = Duration::from_secs(60);
 
 struct TierlistCacheEntry {
     asset_base_url: String,
-    fetched_at: Instant,
     details: TierlistEmbedDetails,
 }
 
 static TIERLIST_CACHE: OnceLock<Mutex<Option<TierlistCacheEntry>>> = OnceLock::new();
-const TIERLIST_CACHE_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Debug, PartialEq, Eq)]
 enum MetadataRoute {
@@ -1353,6 +1367,34 @@ pub async fn metadata_for_image(
         "page" => Some(page_metadata_by_slug(client, config, &id, query).await),
         _ => None,
     }
+}
+
+pub async fn warm_static_caches(client: &Client, config: &Config) {
+    let started_at = Instant::now();
+    let (catalog, timeline, tierlist) = tokio::join!(
+        fetch_resource_catalog(client, config),
+        fetch_banner_timeline_details(client, config),
+        fetch_tierlist_details(client, config),
+    );
+
+    info!(
+        characters = catalog.characters.len(),
+        factors = catalog.factors.len(),
+        skills = catalog.skills.len(),
+        support_cards = catalog.support_cards.len(),
+        affinity_loaded = catalog.affinity.is_some(),
+        race_instances = catalog.race_instance_saddles.len(),
+        timeline_events = timeline
+            .as_ref()
+            .map(|details| details.events.len())
+            .unwrap_or_default(),
+        tierlist_rows = tierlist
+            .as_ref()
+            .map(|details| details.rows.len())
+            .unwrap_or_default(),
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "warmed embed static metadata caches"
+    );
 }
 
 pub fn render_embed_html(meta: &EmbedMetadata, redirect_humans: bool) -> String {
@@ -2900,9 +2942,7 @@ async fn fetch_tierlist_details(client: &Client, config: &Config) -> Option<Tier
     let cache = TIERLIST_CACHE.get_or_init(|| Mutex::new(None));
     if let Some(details) = cache.lock().ok().and_then(|guard| {
         guard.as_ref().and_then(|entry| {
-            if entry.asset_base_url == config.asset_base_url
-                && entry.fetched_at.elapsed() < TIERLIST_CACHE_TTL
-            {
+            if entry.asset_base_url == config.asset_base_url {
                 Some(entry.details.clone())
             } else {
                 None
@@ -2913,33 +2953,54 @@ async fn fetch_tierlist_details(client: &Client, config: &Config) -> Option<Tier
     }
 
     let url = format!("{}/data/precomputed-tierlist.json", config.asset_base_url);
+    let started_at = Instant::now();
     let response = match client.get(url.clone()).send().await {
         Ok(response) => response,
         Err(error) => {
-            warn!(%error, %url, "precomputed tierlist request failed");
+            warn!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "precomputed tierlist request failed"
+            );
             return None;
         }
     };
 
     let status = response.status();
     if !status.is_success() {
-        warn!(%status, %url, "precomputed tierlist request returned non-success status");
+        warn!(
+            %status,
+            %url,
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "precomputed tierlist request returned non-success status"
+        );
         return None;
     }
 
     let response = match response.json::<PrecomputedTierlistResponse>().await {
         Ok(response) => response,
         Err(error) => {
-            warn!(%error, %url, "precomputed tierlist response did not match expected schema");
+            warn!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "precomputed tierlist response did not match expected schema"
+            );
             return None;
         }
     };
 
     let details = build_tierlist_details(&config.asset_base_url, response)?;
+    debug!(
+        %url,
+        rows = details.rows.len(),
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "precomputed tierlist request completed"
+    );
     if let Ok(mut guard) = cache.lock() {
         *guard = Some(TierlistCacheEntry {
             asset_base_url: config.asset_base_url.clone(),
-            fetched_at: Instant::now(),
             details: details.clone(),
         });
     }
@@ -3961,35 +4022,60 @@ async fn fetch_gains_rankings(
 }
 
 async fn fetch_json<T: DeserializeOwned>(client: &Client, url: reqwest::Url) -> Option<T> {
+    let started_at = Instant::now();
     let response = match client.get(url.clone()).send().await {
         Ok(response) => response,
         Err(error) => {
-            warn!(%error, %url, "embed preview request failed");
+            warn!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "embed preview request failed"
+            );
             return None;
         }
     };
 
     let status = response.status();
     if !status.is_success() {
-        warn!(%status, %url, "embed preview request returned non-success status");
+        warn!(
+            %status,
+            %url,
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "embed preview request returned non-success status"
+        );
         return None;
     }
 
     let body = match response.text().await {
         Ok(body) => body,
         Err(error) => {
-            warn!(%error, %url, "embed preview response body could not be read");
+            warn!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "embed preview response body could not be read"
+            );
             return None;
         }
     };
 
     match serde_json::from_str::<T>(&body) {
-        Ok(value) => Some(value),
+        Ok(value) => {
+            debug!(
+                %url,
+                bytes = body.len(),
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "embed preview request completed"
+            );
+            Some(value)
+        }
         Err(error) => {
             warn!(
                 %error,
                 %url,
                 body_preview = %truncate_chars(&body, 500),
+                elapsed_ms = started_at.elapsed().as_millis(),
                 "embed preview response did not match expected schema"
             );
             None
@@ -4002,31 +4088,88 @@ async fn fetch_json_payload<T: DeserializeOwned>(
     url: reqwest::Url,
     gzipped: bool,
 ) -> Option<T> {
+    let started_at = Instant::now();
     let response = match client.get(url.clone()).send().await {
         Ok(response) => response,
         Err(error) => {
-            warn!(%error, %url, "embed preview request failed");
+            warn!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "embed preview request failed"
+            );
             return None;
         }
     };
 
     let status = response.status();
     if !status.is_success() {
-        warn!(%status, %url, "embed preview request returned non-success status");
+        warn!(
+            %status,
+            %url,
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "embed preview request returned non-success status"
+        );
         return None;
     }
 
     let bytes = response.bytes().await.ok()?;
+    let byte_count = bytes.len();
     if gzipped {
         let mut decoder = GzDecoder::new(bytes.as_ref());
         let mut json = String::new();
         if let Err(error) = decoder.read_to_string(&mut json) {
-            warn!(%error, %url, "failed to decode gzipped statistics payload");
+            warn!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "failed to decode gzipped statistics payload"
+            );
             return None;
         }
-        serde_json::from_str(&json).ok()
+
+        match serde_json::from_str(&json) {
+            Ok(value) => {
+                debug!(
+                    %url,
+                    compressed_bytes = byte_count,
+                    decoded_bytes = json.len(),
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "embed preview payload request completed"
+                );
+                Some(value)
+            }
+            Err(error) => {
+                warn!(
+                    %error,
+                    %url,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "embed preview payload response did not match expected schema"
+                );
+                None
+            }
+        }
     } else {
-        serde_json::from_slice(&bytes).ok()
+        match serde_json::from_slice(&bytes) {
+            Ok(value) => {
+                debug!(
+                    %url,
+                    bytes = byte_count,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "embed preview payload request completed"
+                );
+                Some(value)
+            }
+            Err(error) => {
+                warn!(
+                    %error,
+                    %url,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "embed preview payload response did not match expected schema"
+                );
+                None
+            }
+        }
     }
 }
 
@@ -5856,14 +5999,75 @@ fn circle_sort_label(value: &str) -> &'static str {
 }
 
 async fn fetch_site_stats(client: &Client, config: &Config) -> Option<SiteStatsResponse> {
-    let url = format!("{}/api/stats?days=30", config.api_base_url);
+    let cache = SITE_STATS_CACHE.get_or_init(|| Mutex::new(None));
+    if let Some(stats) = cache.lock().ok().and_then(|guard| {
+        guard.as_ref().and_then(|entry| {
+            if entry.api_base_url == config.api_base_url
+                && entry.fetched_at.elapsed() < SITE_STATS_CACHE_TTL
+            {
+                Some(entry.stats.clone())
+            } else {
+                None
+            }
+        })
+    }) {
+        return Some(stats);
+    }
 
-    let response = client.get(url).send().await.ok()?;
-    if !response.status().is_success() {
+    let url = format!("{}/api/stats?days=30", config.api_base_url);
+    let started_at = Instant::now();
+
+    let response = match client.get(url.clone()).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            debug!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "site stats request failed"
+            );
+            return None;
+        }
+    };
+    let status = response.status();
+    if !status.is_success() {
+        debug!(
+            %status,
+            %url,
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "site stats request returned non-success status"
+        );
         return None;
     }
 
-    response.json::<SiteStatsResponse>().await.ok()
+    let stats = match response.json::<SiteStatsResponse>().await {
+        Ok(stats) => stats,
+        Err(error) => {
+            debug!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "site stats response did not match expected schema"
+            );
+            return None;
+        }
+    };
+
+    debug!(
+        %url,
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "site stats request completed"
+    );
+
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some(SiteStatsCacheEntry {
+            api_base_url: config.api_base_url.clone(),
+            fetched_at: Instant::now(),
+            stats: stats.clone(),
+        });
+    }
+
+    Some(stats)
 }
 
 async fn fetch_database_preview(
@@ -5876,24 +6080,40 @@ async fn fetch_database_preview(
         url.query_pairs_mut().append_pair(key, value);
     }
 
+    let started_at = Instant::now();
     let response = match client.get(url.clone()).send().await {
         Ok(response) => response,
         Err(error) => {
-            warn!(%error, %url, "database embed preview request failed");
+            warn!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "database embed preview request failed"
+            );
             return None;
         }
     };
 
     let status = response.status();
     if !status.is_success() {
-        warn!(%status, %url, "database embed preview request returned non-success status");
+        warn!(
+            %status,
+            %url,
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "database embed preview request returned non-success status"
+        );
         return None;
     }
 
     let body = match response.text().await {
         Ok(body) => body,
         Err(error) => {
-            warn!(%error, %url, "database embed preview response body failed");
+            warn!(
+                %error,
+                %url,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "database embed preview response body failed"
+            );
             return None;
         }
     };
@@ -5902,10 +6122,23 @@ async fn fetch_database_preview(
         Ok(response) => response,
         Err(error) => {
             let body_preview = truncate_chars(&body, 400);
-            warn!(%error, %url, %body_preview, "database embed preview response did not match expected schema");
+            warn!(
+                %error,
+                %url,
+                %body_preview,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "database embed preview response did not match expected schema"
+            );
             return None;
         }
     };
+
+    debug!(
+        %url,
+        total = response.total,
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "database embed preview request completed"
+    );
 
     if response.items.is_empty() {
         warn!(%url, total = response.total, "database embed preview returned no items");
@@ -5933,7 +6166,7 @@ async fn fetch_resource_catalog(client: &Client, config: &Config) -> ResourceCat
         guard.as_ref().and_then(|entry| {
             let cache_matches = entry.base_url == config.resources_base_url
                 && entry.token == config.resources_api_token;
-            if cache_matches && entry.fetched_at.elapsed() < RESOURCE_CACHE_TTL {
+            if cache_matches {
                 Some(entry.catalog.clone())
             } else {
                 None
@@ -5944,10 +6177,16 @@ async fn fetch_resource_catalog(client: &Client, config: &Config) -> ResourceCat
     }
 
     let mut catalog = ResourceCatalog::default();
+    let (characters, factors, skills, support_cards, affinity, race_program) = tokio::join!(
+        fetch_resource_json::<Vec<ResourceCharacterRaw>>(client, config, "character"),
+        fetch_resource_json::<Vec<ResourceFactorRaw>>(client, config, "factors"),
+        fetch_resource_json::<Vec<ResourceSkillRaw>>(client, config, "skills"),
+        fetch_resource_json::<Vec<ResourceSupportCardRaw>>(client, config, "support-cards-db"),
+        fetch_resource_json::<ResourceAffinityRaw>(client, config, "affinity"),
+        fetch_resource_json::<ResourceRaceProgramRaw>(client, config, "race_program"),
+    );
 
-    if let Some(characters) =
-        fetch_resource_json::<Vec<ResourceCharacterRaw>>(client, config, "character").await
-    {
+    if let Some(characters) = characters {
         for character in characters {
             let Some(card_id) = value_as_i64(&character.id) else {
                 continue;
@@ -5971,9 +6210,7 @@ async fn fetch_resource_catalog(client: &Client, config: &Config) -> ResourceCat
         }
     }
 
-    if let Some(factors) =
-        fetch_resource_json::<Vec<ResourceFactorRaw>>(client, config, "factors").await
-    {
+    if let Some(factors) = factors {
         for factor in factors {
             let Ok(factor_id) = factor.id.parse::<i64>() else {
                 continue;
@@ -5996,9 +6233,7 @@ async fn fetch_resource_catalog(client: &Client, config: &Config) -> ResourceCat
         }
     }
 
-    if let Some(skills) =
-        fetch_resource_json::<Vec<ResourceSkillRaw>>(client, config, "skills").await
-    {
+    if let Some(skills) = skills {
         for skill in skills {
             let Some(skill_id) = skill.skill_id.as_ref().and_then(value_as_i64) else {
                 continue;
@@ -6011,9 +6246,7 @@ async fn fetch_resource_catalog(client: &Client, config: &Config) -> ResourceCat
         }
     }
 
-    if let Some(support_cards) =
-        fetch_resource_json::<Vec<ResourceSupportCardRaw>>(client, config, "support-cards-db").await
-    {
+    if let Some(support_cards) = support_cards {
         for support_card in support_cards {
             let Some(support_card_id) = value_as_i64(&support_card.id) else {
                 continue;
@@ -6028,9 +6261,7 @@ async fn fetch_resource_catalog(client: &Client, config: &Config) -> ResourceCat
         }
     }
 
-    if let Some(affinity) =
-        fetch_resource_json::<ResourceAffinityRaw>(client, config, "affinity").await
-    {
+    if let Some(affinity) = affinity {
         if !affinity.chars.is_empty() && !affinity.aff2.is_empty() {
             catalog.affinity = Some(AffinityMatrix::new(
                 affinity.chars,
@@ -6040,9 +6271,7 @@ async fn fetch_resource_catalog(client: &Client, config: &Config) -> ResourceCat
         }
     }
 
-    if let Some(race_program) =
-        fetch_resource_json::<ResourceRaceProgramRaw>(client, config, "race_program").await
-    {
+    if let Some(race_program) = race_program {
         for entry in race_program.races.into_values() {
             let Some(saddle_id) = entry.id.as_ref().and_then(value_as_i64) else {
                 continue;
@@ -6068,13 +6297,19 @@ async fn fetch_resource_catalog(client: &Client, config: &Config) -> ResourceCat
         }
     }
 
-    if let Ok(mut guard) = cache.lock() {
-        *guard = Some(ResourceCacheEntry {
-            base_url: config.resources_base_url.clone(),
-            token: config.resources_api_token.clone(),
-            fetched_at: Instant::now(),
-            catalog: catalog.clone(),
-        });
+    if catalog.has_any_data() {
+        if let Ok(mut guard) = cache.lock() {
+            *guard = Some(ResourceCacheEntry {
+                base_url: config.resources_base_url.clone(),
+                token: config.resources_api_token.clone(),
+                catalog: catalog.clone(),
+            });
+        }
+    } else {
+        warn!(
+            base_url = %config.resources_base_url,
+            "resource catalog warm/fetch returned no data; leaving cache empty so a later request can retry"
+        );
     }
 
     catalog
@@ -6089,7 +6324,7 @@ async fn fetch_banner_timeline_details(
         if let Some(entry) = guard.as_ref() {
             let cache_matches = entry.base_url == config.resources_base_url
                 && entry.token == config.resources_api_token;
-            if cache_matches && entry.fetched_at.elapsed() < BANNER_TIMELINE_CACHE_TTL {
+            if cache_matches {
                 return entry.details.clone();
             }
         }
@@ -6104,7 +6339,6 @@ async fn fetch_banner_timeline_details(
             *guard = Some(BannerTimelineCacheEntry {
                 base_url: config.resources_base_url.clone(),
                 token: config.resources_api_token.clone(),
-                fetched_at: Instant::now(),
                 details: details.clone(),
             });
         }
@@ -6354,32 +6588,67 @@ async fn fetch_resource_json<T: DeserializeOwned>(
         request = request.header("X-API-Key", token).bearer_auth(token);
     }
 
+    let started_at = Instant::now();
     let response = match request.send().await {
         Ok(response) => response,
         Err(error) => {
-            warn!(%error, %url, resource = resource_name, "resource catalog request failed");
+            warn!(
+                %error,
+                %url,
+                resource = resource_name,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "resource catalog request failed"
+            );
             return None;
         }
     };
 
     let status = response.status();
     if !status.is_success() {
-        warn!(%status, %url, resource = resource_name, "resource catalog request returned non-success status");
+        warn!(
+            %status,
+            %url,
+            resource = resource_name,
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "resource catalog request returned non-success status"
+        );
         return None;
     }
 
     let bytes = match response.bytes().await {
         Ok(bytes) => bytes,
         Err(error) => {
-            warn!(%error, %url, resource = resource_name, "failed to read resource catalog response body");
+            warn!(
+                %error,
+                %url,
+                resource = resource_name,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "failed to read resource catalog response body"
+            );
             return None;
         }
     };
+    let byte_count = bytes.len();
 
     match decode_resource_json::<T>(&bytes) {
-        Ok(resource) => Some(resource),
+        Ok(resource) => {
+            debug!(
+                %url,
+                resource = resource_name,
+                bytes = byte_count,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "resource catalog request completed"
+            );
+            Some(resource)
+        }
         Err(error) => {
-            warn!(%error, %url, resource = resource_name, "resource catalog response did not match expected schema");
+            warn!(
+                %error,
+                %url,
+                resource = resource_name,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "resource catalog response did not match expected schema"
+            );
             None
         }
     }

@@ -610,6 +610,7 @@ impl ChromiumProcess {
     fn wait_until_ready(&mut self) -> Result<()> {
         let startup_timeout = chromium_startup_timeout();
         let started_at = SystemTime::now();
+        let mut last_probe_error = String::new();
         loop {
             if let Some(status) = self.child.try_wait()? {
                 return Err(chromium_startup_error(
@@ -624,17 +625,23 @@ impl ChromiumProcess {
                 }
             }
 
-            if self.port != 0 && http_request(self.port, "GET", "/json/version").is_ok() {
-                return Ok(());
+            if self.port != 0 {
+                match http_request(self.port, "GET", "/json/version") {
+                    Ok(_) => return Ok(()),
+                    Err(error) => {
+                        last_probe_error = error.to_string();
+                    }
+                }
             }
 
             if started_at.elapsed().unwrap_or_default() > startup_timeout {
                 return Err(chromium_startup_error(
                     format!(
-                        "Chromium did not expose DevTools within {:?}; port={}; profile={}",
+                        "Chromium did not expose DevTools within {:?}; port={}; profile={}; last_probe_error={}",
                         startup_timeout,
                         self.port,
-                        self.profile_dir.display()
+                        self.profile_dir.display(),
+                        last_probe_error
                     ),
                     &self.stderr_path,
                 ));
@@ -3851,18 +3858,34 @@ fn http_request(port: u16, method: &str, path: &str) -> Result<String> {
     );
     stream.write_all(request.as_bytes())?;
 
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response)?;
-    let response = String::from_utf8_lossy(&response);
-    let (headers, body) = response
-        .split_once("\r\n\r\n")
-        .ok_or_else(|| anyhow!("invalid Chromium DevTools HTTP response"))?;
+    let headers = read_http_headers(&mut stream)?;
     let status = headers.lines().next().unwrap_or_default();
     if !(status.starts_with("HTTP/1.1 2") || status.starts_with("HTTP/1.0 2")) {
         return Err(anyhow!("Chromium DevTools request failed: {status}"));
     }
 
-    Ok(body.to_string())
+    let body = match http_content_length(&headers)? {
+        Some(content_length) => {
+            let mut body = vec![0_u8; content_length];
+            stream.read_exact(&mut body)?;
+            body
+        }
+        None => {
+            let mut body = Vec::new();
+            match stream.read_to_end(&mut body) {
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(error) => return Err(error.into()),
+            }
+            body
+        }
+    };
+
+    String::from_utf8(body).context("Chromium DevTools response body was not UTF-8")
 }
 
 fn read_http_headers(stream: &mut TcpStream) -> Result<String> {
@@ -3880,6 +3903,22 @@ fn read_http_headers(stream: &mut TcpStream) -> Result<String> {
     }
 
     String::from_utf8(response).context("Chromium websocket response headers were not UTF-8")
+}
+
+fn http_content_length(headers: &str) -> Result<Option<usize>> {
+    headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then_some(value.trim())
+        })
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .with_context(|| format!("invalid Chromium DevTools content-length `{value}`"))
+        })
+        .transpose()
 }
 
 fn websocket_key() -> String {
@@ -4155,6 +4194,8 @@ fn accent_for_kind(kind: &str) -> Accent {
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpListener;
+
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 
     use crate::embed::{DatabaseEmbedDetails, EmbedMetadata, EmbedMetric, ResourceCatalog};
@@ -4183,6 +4224,34 @@ mod tests {
             tierlist: None,
             resources: ResourceCatalog::default(),
         }
+    }
+
+    #[test]
+    fn devtools_http_request_returns_without_waiting_for_connection_close() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\n\
+                      Content-Length: 11\r\n\
+                      Connection: keep-alive\r\n\
+                      \r\n\
+                      {\"ok\":true}",
+                )
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(900));
+        });
+
+        let started_at = Instant::now();
+        let body = http_request(port, "GET", "/json/version").unwrap();
+
+        assert_eq!(body, "{\"ok\":true}");
+        assert!(started_at.elapsed() < Duration::from_millis(500));
+        server.join().unwrap();
     }
 
     #[test]

@@ -29,7 +29,7 @@ use tracing_subscriber::EnvFilter;
 use crate::{
     bots::{has_debug_query, should_render_embed},
     config::Config,
-    embed::{metadata_for_image, metadata_for_path, render_embed_html},
+    embed::{metadata_for_image, metadata_for_path, render_embed_html, warm_static_caches},
     proxy::{plain_response, proxy_request},
 };
 
@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
 
     let html_renderer = html_card::HtmlRenderer::new(config.render_max_concurrency);
     html_renderer.warm_up();
+    warm_static_caches(&client, &config).await;
 
     let image_cache = ImageCache::new(
         config.image_cache_max_entries,
