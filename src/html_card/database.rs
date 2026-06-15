@@ -652,7 +652,7 @@ fn render_result_subline(database: &DatabaseEmbedDetails) -> String {
     let result = result_total_label(database.result_total);
 
     format!(
-        r#"<span>{}</span><span class="subline-dot"></span><span>{}</span><span class="subline-dot"></span><span class="subline-accent">{}</span>"#,
+        r#"<span class="database-trainer-id" title="Trainer ID">{}</span><span class="subline-dot"></span><span>{}</span><span class="subline-dot"></span><span class="subline-accent">{}</span>"#,
         html_escape(&trainer_id),
         html_escape(&truncate_chars(&query, 30)),
         html_escape(&result),
@@ -869,6 +869,22 @@ fn database_css() -> &'static str {
     .database-subline span {
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .database-subline .database-trainer-id {
+      flex: 0 0 auto;
+      max-width: 260px;
+      padding: 4px 8px;
+      border: 1px solid rgba(118, 207, 255, 0.32);
+      border-radius: 7px;
+      background: rgba(118, 207, 255, 0.11);
+      color: #e8f7ff;
+      font-size: 15px;
+      letter-spacing: 0;
+      line-height: 1;
+      text-transform: none;
+      user-select: all;
+      cursor: text;
     }
 
     .subline-dot {
@@ -3376,6 +3392,7 @@ fn database_css() -> &'static str {
     }
 
     .support-card-section {
+      position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -3385,6 +3402,25 @@ fn database_css() -> &'static str {
       border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: 8px;
       background: rgba(255, 255, 255, 0.025);
+    }
+
+    .support-card-section.matched-filter {
+      border-color: rgba(255, 214, 102, 0.72);
+      background:
+        linear-gradient(135deg, rgba(255, 214, 102, 0.16), rgba(33, 150, 243, 0.05)),
+        rgba(255, 255, 255, 0.035);
+      box-shadow: 0 0 0 1px rgba(255, 214, 102, 0.16), 0 8px 22px rgba(255, 214, 102, 0.08);
+    }
+
+    .support-filter-badge {
+      position: absolute;
+      top: 6px;
+      right: 7px;
+      color: #ffd666;
+      font-size: 8px;
+      font-weight: 900;
+      line-height: 1;
+      text-transform: uppercase;
     }
 
     .support-card-image {
@@ -3420,6 +3456,11 @@ fn database_css() -> &'static str {
 
     .limit-break-icon.filled path {
       fill: #2196f3;
+    }
+
+    .limit-break-icon.filled.matched-filter path {
+      fill: #ffd666;
+      filter: drop-shadow(0 0 5px rgba(255, 214, 102, 0.52));
     }
 
     .spark-arrays {

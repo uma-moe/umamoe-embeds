@@ -86,6 +86,8 @@ pub struct DatabaseEmbedDetails {
     pub result_total: i64,
     pub matched_factor_ids: Vec<i64>,
     pub matched_main_factor_ids: Vec<i64>,
+    pub matched_support_card_id: Option<i64>,
+    pub matched_min_limit_break: Option<i64>,
     pub trainer_name: String,
     pub trainer_id: String,
     pub record_id: Option<i64>,
@@ -853,6 +855,8 @@ struct DatabaseSearchPreview {
 struct DatabaseQueryHighlights {
     matched_factor_ids: Vec<i64>,
     matched_main_factor_ids: Vec<i64>,
+    matched_support_card_id: Option<i64>,
+    matched_min_limit_break: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -869,6 +873,7 @@ pub struct ResourceCatalog {
     characters: BTreeMap<i64, ResourceCharacter>,
     factors: BTreeMap<i64, ResourceFactor>,
     skills: BTreeMap<i64, ResourceSkill>,
+    support_cards: BTreeMap<i64, ResourceSupportCard>,
     affinity: Option<AffinityMatrix>,
     race_instance_saddles: BTreeMap<i64, Vec<i64>>,
     timeline: Option<TimelineEmbedDetails>,
@@ -883,6 +888,18 @@ impl ResourceCatalog {
         self.characters
             .get(&card_id)
             .map(|character| (character.name.clone(), character.image.clone()))
+    }
+
+    pub fn character_name(&self, card_id: i64) -> Option<&str> {
+        self.characters
+            .get(&card_id)
+            .map(|character| character.name.as_str())
+    }
+
+    pub fn support_card_name(&self, support_card_id: i64) -> Option<&str> {
+        self.support_cards
+            .get(&support_card_id)
+            .map(|support_card| support_card.name.as_str())
     }
 
     pub fn factor_info(&self, factor_id: i64) -> Option<(String, i64)> {
@@ -987,6 +1004,11 @@ struct ResourceSkill {
 }
 
 #[derive(Clone, Debug)]
+struct ResourceSupportCard {
+    name: String,
+}
+
+#[derive(Clone, Debug)]
 struct AffinityMatrix {
     chars: Vec<i64>,
     index: BTreeMap<i64, usize>,
@@ -1054,6 +1076,13 @@ struct ResourceFactorRaw {
 struct ResourceSkillRaw {
     #[serde(default)]
     skill_id: Option<Value>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResourceSupportCardRaw {
+    id: Value,
     #[serde(default)]
     name: Option<String>,
 }
@@ -2564,7 +2593,7 @@ async fn database_metadata(client: &Client, config: &Config, query: Option<&str>
     let preview = fetch_database_preview(client, config, &search_params).await;
     let canonical_url = absolute_url_with_query(config, "/database", Some(&query));
     let image_url = image_url_with_query(config, "database", "query", Some(&query));
-    let query_label = database_query_label(&search_params);
+    let query_label = database_query_label(&search_params, &resources);
 
     match preview.and_then(|preview| {
         preview
@@ -2658,7 +2687,7 @@ fn database_result_metadata(
     };
 
     let mut detail_parts = vec![format!(
-        "Top inheritance match for {query_label}: {trainer_name} ({trainer_id})."
+        "Top inheritance match for {query_label}: {trainer_name}."
     )];
     if let Some(affinity) = effective_affinity {
         detail_parts.push(format!("Affinity {affinity}."));
@@ -2670,10 +2699,17 @@ fn database_result_metadata(
         detail_parts.push(format!("{} white skills.", format_number(white_count)));
     }
     if let Some(main_parent_id) = inheritance.main_parent_id {
-        detail_parts.push(format!("Main parent {main_parent_id}."));
+        detail_parts.push(format!(
+            "Main parent {}.",
+            database_character_embed_label(&resources, main_parent_id)
+        ));
     }
     if let (Some(left), Some(right)) = (inheritance.parent_left_id, inheritance.parent_right_id) {
-        detail_parts.push(format!("Parents {left} / {right}."));
+        detail_parts.push(format!(
+            "Parents {} / {}.",
+            database_character_embed_label(&resources, left),
+            database_character_embed_label(&resources, right)
+        ));
     }
 
     let mut metrics = vec![
@@ -2721,6 +2757,8 @@ fn database_result_metadata(
             result_total: total,
             matched_factor_ids: highlights.matched_factor_ids,
             matched_main_factor_ids: highlights.matched_main_factor_ids,
+            matched_support_card_id: highlights.matched_support_card_id,
+            matched_min_limit_break: highlights.matched_min_limit_break,
             trainer_name,
             trainer_id,
             record_id: inheritance.inheritance_id,
@@ -5939,6 +5977,23 @@ async fn fetch_resource_catalog(client: &Client, config: &Config) -> ResourceCat
         }
     }
 
+    if let Some(support_cards) =
+        fetch_resource_json::<Vec<ResourceSupportCardRaw>>(client, config, "support-cards-db").await
+    {
+        for support_card in support_cards {
+            let Some(support_card_id) = value_as_i64(&support_card.id) else {
+                continue;
+            };
+            let Some(name) = support_card.name.filter(|name| !name.trim().is_empty()) else {
+                continue;
+            };
+
+            catalog
+                .support_cards
+                .insert(support_card_id, ResourceSupportCard { name });
+        }
+    }
+
     if let Some(affinity) =
         fetch_resource_json::<ResourceAffinityRaw>(client, config, "affinity").await
     {
@@ -6416,6 +6471,7 @@ fn apply_database_filter_state(
     set_param_string(params, state, "sc", "support_card_id");
     set_param_number(params, state, "lb", "min_limit_break");
     set_param_string(params, state, "uid", "trainer_id");
+    set_param_string(params, state, "un", "trainer_name");
     set_param_number(params, state, "mwc", "min_win_count");
     set_param_number(params, state, "mwh", "min_white_count");
     set_param_number(params, state, "pr", "parent_rank");
@@ -6495,7 +6551,11 @@ fn has_meaningful_database_search_params(params: &[(String, String)]) -> bool {
     })
 }
 
-fn database_query_label(params: &[(String, String)]) -> String {
+fn database_query_label(params: &[(String, String)], resources: &ResourceCatalog) -> String {
+    if let Some(support_card_id) = param_value(params, "support_card_id") {
+        return database_support_card_query_label(resources, support_card_id);
+    }
+
     if let Some(trainer_id) = param_value(params, "trainer_id") {
         return format!("trainer {trainer_id}");
     }
@@ -6509,23 +6569,49 @@ fn database_query_label(params: &[(String, String)]) -> String {
     }
 
     if let Some(main_parent_id) = param_value(params, "main_parent_id") {
-        return format!("main parent {main_parent_id}");
+        return database_character_query_label(resources, "main parent", main_parent_id);
     }
 
     if let Some(player_chara_id) = param_value(params, "player_chara_id") {
-        return format!("character {player_chara_id}");
-    }
-
-    if let Some(support_card_id) = param_value(params, "support_card_id") {
-        return format!("support card {support_card_id}");
+        return database_character_query_label(resources, "character", player_chara_id);
     }
 
     "shared filters".to_string()
 }
 
+fn database_support_card_query_label(resources: &ResourceCatalog, support_card_id: &str) -> String {
+    parse_integer_label(support_card_id)
+        .and_then(|id| resources.support_card_name(id))
+        .map(|name| format!("support card {name}"))
+        .unwrap_or_else(|| format!("support card {support_card_id}"))
+}
+
+fn database_character_query_label(
+    resources: &ResourceCatalog,
+    prefix: &str,
+    character_id: &str,
+) -> String {
+    parse_integer_label(character_id)
+        .and_then(|id| resources.character_name(id))
+        .map(|name| format!("{prefix} {name}"))
+        .unwrap_or_else(|| format!("{prefix} {character_id}"))
+}
+
+fn database_character_embed_label(resources: &ResourceCatalog, character_id: i64) -> String {
+    resources
+        .character_name(character_id)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Uma #{character_id}"))
+}
+
 fn database_query_highlights(params: &[(String, String)]) -> DatabaseQueryHighlights {
     let mut matched_factor_ids = Vec::new();
     let mut matched_main_factor_ids = Vec::new();
+    let matched_support_card_id =
+        param_value(params, "support_card_id").and_then(parse_integer_label);
+    let matched_min_limit_break = param_value(params, "min_limit_break")
+        .and_then(parse_integer_label)
+        .map(|value| value.clamp(0, 4));
 
     for (key, value) in params {
         if !is_factor_filter_param(key) {
@@ -6552,6 +6638,8 @@ fn database_query_highlights(params: &[(String, String)]) -> DatabaseQueryHighli
     DatabaseQueryHighlights {
         matched_factor_ids,
         matched_main_factor_ids,
+        matched_support_card_id,
+        matched_min_limit_break,
     }
 }
 
@@ -7587,12 +7675,15 @@ mod tests {
 
     #[test]
     fn database_compact_filters_decode_to_backend_params() {
-        let state = r#"{"uid":"540903147493","mwc":18,"b":[[10,3,3]],"mb":[[20,2,3]],"ow":[1001,1002],"t":[9001,1001,2001,3001,null,null,null],"bss":12}"#;
+        let state = r#"{"uid":"540903147493","un":"Arumi","sc":"30039","lb":4,"mwc":18,"b":[[10,3,3]],"mb":[[20,2,3]],"ow":[1001,1002],"t":[9001,1001,2001,3001,null,null,null],"bss":12}"#;
         let encoded = BASE64_STANDARD.encode(state);
         let query = format!("filters={}", urlencoding::encode(&encoded));
         let params = database_search_params_from_query(&query);
 
         assert_eq!(param_value(&params, "trainer_id"), Some("540903147493"));
+        assert_eq!(param_value(&params, "trainer_name"), Some("Arumi"));
+        assert_eq!(param_value(&params, "support_card_id"), Some("30039"));
+        assert_eq!(param_value(&params, "min_limit_break"), Some("4"));
         assert_eq!(param_value(&params, "min_win_count"), Some("18"));
         assert_eq!(param_value(&params, "blue_sparks"), Some("103"));
         assert_eq!(
@@ -7834,6 +7925,29 @@ mod tests {
         aff3[7] = 44;
 
         let resources = ResourceCatalog {
+            characters: BTreeMap::from([
+                (
+                    2,
+                    ResourceCharacter {
+                        name: "Main Uma".to_string(),
+                        image: "main.webp".to_string(),
+                    },
+                ),
+                (
+                    3,
+                    ResourceCharacter {
+                        name: "Left Uma".to_string(),
+                        image: "left.webp".to_string(),
+                    },
+                ),
+                (
+                    4,
+                    ResourceCharacter {
+                        name: "Right Uma".to_string(),
+                        image: "right.webp".to_string(),
+                    },
+                ),
+            ]),
             affinity: Some(AffinityMatrix::new(vec![1, 2, 3, 4], aff2, aff3)),
             ..ResourceCatalog::default()
         };
@@ -7866,6 +7980,8 @@ mod tests {
             "https://uma.moe/database".to_string(),
             "https://uma.moe/__embeds/images/database/query.png".to_string(),
         );
+        assert!(meta.description.contains("Main parent Main Uma."));
+        assert!(meta.description.contains("Parents Left Uma / Right Uma."));
         let database = meta.database.unwrap();
 
         assert_eq!(database.affinity_score, Some(17));
@@ -7876,12 +7992,45 @@ mod tests {
     #[test]
     fn database_query_highlights_factor_filters() {
         let params = database_search_params_from_query(
-            "blue_sparks=202&white_sparks=2012701&main_parent_pink_sparks=2103",
+            "blue_sparks=202&white_sparks=2012701&main_parent_pink_sparks=2103&support_card_id=30039&min_limit_break=4",
         );
         let highlights = database_query_highlights(&params);
 
         assert_eq!(highlights.matched_factor_ids, vec![20, 210, 201270]);
         assert_eq!(highlights.matched_main_factor_ids, vec![210]);
+        assert_eq!(highlights.matched_support_card_id, Some(30039));
+        assert_eq!(highlights.matched_min_limit_break, Some(4));
+    }
+
+    #[test]
+    fn database_query_label_uses_resource_names() {
+        let mut resources = ResourceCatalog::default();
+        resources.support_cards.insert(
+            30039,
+            ResourceSupportCard {
+                name: "Fine Motion".to_string(),
+            },
+        );
+        resources.characters.insert(
+            105001,
+            ResourceCharacter {
+                name: "Curren Chan".to_string(),
+                image: "chara_stand_105001.webp".to_string(),
+            },
+        );
+
+        let support_params =
+            database_search_params_from_query("support_card_id=30039&trainer_name=Arumi");
+        assert_eq!(
+            database_query_label(&support_params, &resources),
+            "support card Fine Motion"
+        );
+
+        let parent_params = database_search_params_from_query("main_parent_id=105001");
+        assert_eq!(
+            database_query_label(&parent_params, &resources),
+            "main parent Curren Chan"
+        );
     }
 
     #[test]

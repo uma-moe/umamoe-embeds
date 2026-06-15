@@ -188,23 +188,45 @@ fn render_support_card(database: &DatabaseEmbedDetails) -> String {
     let Some(support_card_id) = database.support_card_id else {
         return String::new();
     };
+    let support_matches = database.matched_support_card_id == Some(support_card_id);
+    let mut class_names = vec!["support-card-section"];
+    if support_matches {
+        class_names.push("matched-filter");
+    }
+    let match_badge = if support_matches {
+        r#"<span class="support-filter-badge">Filter</span>"#
+    } else {
+        ""
+    };
 
     format!(
-        r#"<div class="support-card-section">
-          <img src="{}" alt="" class="support-card-image" onerror="this.style.visibility='hidden'">
-          {}
+        r#"<div class="{class_names}">
+          <img src="{image_url}" alt="" class="support-card-image" onerror="this.style.visibility='hidden'">
+          {limit_breaks}
+          {match_badge}
         </div>"#,
-        html_escape(&support_card_image_url(database, support_card_id)),
-        render_limit_breaks(database.limit_break_count.unwrap_or_default()),
+        class_names = class_names.join(" "),
+        image_url = html_escape(&support_card_image_url(database, support_card_id)),
+        limit_breaks = render_limit_breaks(
+            database.limit_break_count.unwrap_or_default(),
+            database.matched_min_limit_break.filter(|_| support_matches),
+        ),
+        match_badge = match_badge,
     )
 }
 
-fn render_limit_breaks(count: i64) -> String {
+fn render_limit_breaks(count: i64, matched_min_limit_break: Option<i64>) -> String {
     let count = count.clamp(0, 4);
+    let matched_count = matched_min_limit_break.unwrap_or_default().clamp(0, 4);
     let icons = (0..4)
         .map(|index| {
             if index < count {
-                r#"<svg class="limit-break-icon filled" viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-64 224-480l256-416 256 416L480-64Z"/></svg>"#.to_string()
+                let matched_class = if index < matched_count {
+                    " matched-filter"
+                } else {
+                    ""
+                };
+                format!(r#"<svg class="limit-break-icon filled{matched_class}" viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-64 224-480l256-416 256 416L480-64Z"/></svg>"#)
             } else {
                 r#"<svg class="limit-break-icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-64 224-480l256-416 256 416L480-64Zm0-139 170-277-170-278-169 278 169 277Zm0-277Z"/></svg>"#.to_string()
             }

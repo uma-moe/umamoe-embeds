@@ -2628,6 +2628,8 @@ fn profile_borrow_details(meta: &EmbedMetadata) -> DatabaseEmbedDetails {
         result_total: 1,
         matched_factor_ids: Vec::new(),
         matched_main_factor_ids: Vec::new(),
+        matched_support_card_id: None,
+        matched_min_limit_break: None,
         trainer_name: profile_value(meta, &["Trainer"], &display_title(&meta.title)),
         trainer_id: profile_value(meta, &["Trainer ID"], "trainer"),
         record_id: None,

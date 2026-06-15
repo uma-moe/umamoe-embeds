@@ -1495,6 +1495,7 @@ pub(crate) fn render_card_html(meta: &EmbedMetadata) -> String {
     }}
 
     .support-card-section {{
+      position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1504,6 +1505,26 @@ pub(crate) fn render_card_html(meta: &EmbedMetadata) -> String {
       border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: var(--radius-md);
       background: rgba(255, 255, 255, 0.025);
+    }}
+
+    .support-card-section.matched-filter {{
+      border-color: rgba(255, 214, 102, 0.72);
+      background:
+        linear-gradient(135deg, rgba(255, 214, 102, 0.16), rgba(33, 150, 243, 0.05)),
+        rgba(255, 255, 255, 0.035);
+      box-shadow: 0 0 0 1px rgba(255, 214, 102, 0.16), 0 8px 22px rgba(255, 214, 102, 0.08);
+    }}
+
+    .support-filter-badge {{
+      position: absolute;
+      top: 6px;
+      right: 7px;
+      color: #ffd666;
+      font-size: 8px;
+      font-weight: 900;
+      line-height: 1;
+      text-transform: uppercase;
+      letter-spacing: 0;
     }}
 
     .support-card-image {{
@@ -1537,6 +1558,11 @@ pub(crate) fn render_card_html(meta: &EmbedMetadata) -> String {
 
     .limit-break-icon.filled path {{
       fill: #2196f3;
+    }}
+
+    .limit-break-icon.filled.matched-filter path {{
+      fill: #ffd666;
+      filter: drop-shadow(0 0 5px rgba(255, 214, 102, 0.52));
     }}
 
     .spark-arrays {{
@@ -4589,6 +4615,8 @@ mod tests {
                 result_total: 1,
                 matched_factor_ids: vec![10, 201270],
                 matched_main_factor_ids: vec![10],
+                matched_support_card_id: Some(30036),
+                matched_min_limit_break: Some(1),
                 trainer_name: "UUC".to_string(),
                 trainer_id: "540903147493".to_string(),
                 record_id: Some(1),
@@ -4637,7 +4665,10 @@ mod tests {
         assert!(html.contains(r#"<main class="database-card embed-kind-database embed-type-database embed-route-database card-view-database">"#));
         assert!(html.contains(r#"<article class="database-result-card">"#));
         assert!(html.contains("embed-brand-corner"));
+        assert!(html.contains("database-trainer-id"));
         assert!(html.contains(".spark-item.matched-filter"));
+        assert!(html.contains("support-card-section matched-filter"));
+        assert!(html.contains("limit-break-icon filled matched-filter"));
         assert!(html.contains("spark-item blue-spark matched-filter from-main-parent"));
         assert!(html.contains("spark-item white-spark matched-filter from-main-parent"));
         assert!(html.contains("parent-source"));
