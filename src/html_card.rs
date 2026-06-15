@@ -230,21 +230,13 @@ impl HtmlRenderer {
         }
 
         if saw_busy_slot {
-            let slot_index = start;
-            let slot = &self.inner.chromium_slots[slot_index];
             tracing::debug!(
-                slot_index = slot_index,
-                "all persistent Chromium renderer slots were busy; waiting for selected slot"
+                slot_count = slot_count,
+                cooling_slots = cooling_slots,
+                next_retry_ms = next_retry_ms.unwrap_or_default(),
+                "all persistent Chromium renderer slots are busy"
             );
-            let mut state = slot
-                .state
-                .lock()
-                .map_err(|_| anyhow!("Chromium renderer slot {slot_index} lock is poisoned"))?;
-
-            if persistent_chromium_cooldown_remaining(&mut state).is_none() {
-                return capture_with_available_persistent_slot(&mut state, slot_index, url)
-                    .map(Some);
-            }
+            return Ok(None);
         }
 
         tracing::debug!(
@@ -476,7 +468,6 @@ impl ChromiumProcess {
                 "--no-default-browser-check",
                 "--no-first-run",
                 "--no-sandbox",
-                "--no-zygote",
                 "--password-store=basic",
                 "--remote-allow-origins=*",
                 "--remote-debugging-address=127.0.0.1",
