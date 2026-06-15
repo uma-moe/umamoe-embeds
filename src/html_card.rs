@@ -41,6 +41,11 @@ const DEFAULT_CHROMIUM_STARTUP_TIMEOUT_SECONDS: u64 = 45;
 const DEFAULT_CHROMIUM_RENDER_TIMEOUT_SECONDS: u64 = 15;
 const DEFAULT_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS: u64 = 900;
 const DEFAULT_CHROMIUM_DEBUG_PORT_BASE: u16 = 39_200;
+const CHROMIUM_DISABLED_FEATURES: &str = concat!(
+    "Translate,MediaRouter,OptimizationHints,AutofillServerCommunication,",
+    "DialMediaRouteProvider,GlobalMediaControls,PushMessaging,NotificationTriggers,",
+    "InterestFeedContentSuggestions,BackgroundFetch"
+);
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 12 * 1024 * 1024;
 static RENDER_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -194,6 +199,8 @@ impl HtmlRenderer {
         let slot_count = self.slot_count();
         let start = self.inner.next_slot.fetch_add(1, Ordering::Relaxed) % slot_count;
         let mut saw_busy_slot = false;
+        let mut cooling_slots = 0_usize;
+        let mut next_retry_ms: Option<u128> = None;
 
         for offset in 0..slot_count {
             let slot_index = (start + offset) % slot_count;
@@ -211,7 +218,11 @@ impl HtmlRenderer {
                 }
             };
 
-            if !persistent_chromium_slot_available(&mut state) {
+            if let Some(remaining) = persistent_chromium_cooldown_remaining(&mut state) {
+                cooling_slots += 1;
+                let remaining_ms = remaining.as_millis();
+                next_retry_ms =
+                    Some(next_retry_ms.map_or(remaining_ms, |next| next.min(remaining_ms)));
                 continue;
             }
 
@@ -230,13 +241,18 @@ impl HtmlRenderer {
                 .lock()
                 .map_err(|_| anyhow!("Chromium renderer slot {slot_index} lock is poisoned"))?;
 
-            if persistent_chromium_slot_available(&mut state) {
+            if persistent_chromium_cooldown_remaining(&mut state).is_none() {
                 return capture_with_available_persistent_slot(&mut state, slot_index, url)
                     .map(Some);
             }
         }
 
-        tracing::debug!("all persistent Chromium renderer slots are cooling down");
+        tracing::debug!(
+            slot_count = slot_count,
+            cooling_slots = cooling_slots,
+            next_retry_ms = next_retry_ms.unwrap_or_default(),
+            "no persistent Chromium renderer slot available"
+        );
         Ok(None)
     }
 
@@ -248,7 +264,12 @@ impl HtmlRenderer {
             return;
         };
 
-        disable_persistent_chromium_slot(&mut state);
+        let cooldown = disable_persistent_chromium_slot(&mut state);
+        tracing::debug!(
+            slot_index = slot_index,
+            cooldown_ms = cooldown.as_millis(),
+            "disabled persistent Chromium renderer slot"
+        );
     }
 
     fn slot_count(&self) -> usize {
@@ -303,25 +324,38 @@ fn capture_with_available_persistent_slot(
                 "persistent Chromium renderer slot failed"
             );
             stop_chromium_process(&mut state.chromium);
-            disable_persistent_chromium_slot(state);
+            let cooldown = disable_persistent_chromium_slot(state);
+            tracing::debug!(
+                slot_index = slot_index,
+                cooldown_ms = cooldown.as_millis(),
+                "disabled persistent Chromium renderer slot"
+            );
             Err(error)
         }
     }
 }
 
 fn persistent_chromium_slot_available(state: &mut ChromiumSlotState) -> bool {
+    persistent_chromium_cooldown_remaining(state).is_none()
+}
+
+fn persistent_chromium_cooldown_remaining(state: &mut ChromiumSlotState) -> Option<Duration> {
     match state.disabled_until {
-        Some(until) if Instant::now() < until => false,
-        Some(_) => {
-            state.disabled_until = None;
-            true
-        }
-        None => true,
+        Some(until) => match until.checked_duration_since(Instant::now()) {
+            Some(remaining) if !remaining.is_zero() => Some(remaining),
+            _ => {
+                state.disabled_until = None;
+                None
+            }
+        },
+        None => None,
     }
 }
 
-fn disable_persistent_chromium_slot(state: &mut ChromiumSlotState) {
-    state.disabled_until = Some(Instant::now() + persistent_chromium_cooldown());
+fn disable_persistent_chromium_slot(state: &mut ChromiumSlotState) -> Duration {
+    let cooldown = persistent_chromium_cooldown();
+    state.disabled_until = Some(Instant::now() + cooldown);
+    cooldown
 }
 
 fn capture_with_chromium_process(
@@ -403,15 +437,19 @@ impl ChromiumProcess {
         let profile_arg = format!("--user-data-dir={}", profile_dir.display());
         let cache_arg = format!("--disk-cache-dir={}", cache_dir.display());
         let crash_dumps_arg = format!("--crash-dumps-dir={}", cache_dir.display());
+        let disabled_features_arg = format!("--disable-features={CHROMIUM_DISABLED_FEATURES}");
         let remote_debugging_arg =
             format!("--remote-debugging-port={}", configured_port.unwrap_or(0));
 
         let child = Command::new(&chromium)
             .args([
-                "--headless=new",
+                "--headless",
                 "--disable-background-networking",
+                "--disable-background-mode",
+                "--disable-background-timer-throttling",
                 "--disable-breakpad",
                 "--disable-client-side-phishing-detection",
+                "--disable-component-extensions-with-background-pages",
                 "--disable-component-update",
                 "--disable-crash-reporter",
                 "--disable-default-apps",
@@ -419,15 +457,19 @@ impl ChromiumProcess {
                 "--disable-dev-shm-usage",
                 "--disable-domain-reliability",
                 "--disable-extensions",
-                "--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication",
+                "--disable-gcm-registration",
                 "--disable-hang-monitor",
+                "--disable-ipc-flooding-protection",
                 "--disable-namespace-sandbox",
+                "--disable-notifications",
                 "--disable-popup-blocking",
                 "--disable-prompt-on-repost",
+                "--disable-push-api-background-mode",
                 "--disable-renderer-backgrounding",
                 "--disable-seccomp-filter-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-sync",
+                "--enable-logging=stderr",
                 "--hide-scrollbars",
                 "--metrics-recording-only",
                 "--mute-audio",
@@ -436,10 +478,13 @@ impl ChromiumProcess {
                 "--no-sandbox",
                 "--no-zygote",
                 "--password-store=basic",
+                "--remote-allow-origins=*",
                 "--remote-debugging-address=127.0.0.1",
                 "--run-all-compositor-stages-before-draw",
                 "--use-mock-keychain",
+                "--v=0",
                 "--force-device-scale-factor=1",
+                &disabled_features_arg,
                 &window_size_arg,
                 &profile_arg,
                 &cache_arg,
@@ -450,6 +495,8 @@ impl ChromiumProcess {
             .env("HOME", &profile_dir)
             .env("XDG_CACHE_HOME", &cache_dir)
             .env("XDG_CONFIG_HOME", &profile_dir)
+            .env("NO_AT_BRIDGE", "1")
+            .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::from(stderr))
@@ -496,8 +543,9 @@ impl ChromiumProcess {
             if started_at.elapsed().unwrap_or_default() > startup_timeout {
                 return Err(chromium_startup_error(
                     format!(
-                        "Chromium did not expose DevTools within {:?}; profile={}",
+                        "Chromium did not expose DevTools within {:?}; port={}; profile={}",
                         startup_timeout,
+                        self.port,
                         self.profile_dir.display()
                     ),
                     &self.stderr_path,
