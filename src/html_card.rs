@@ -66,6 +66,7 @@ struct ChromiumSlot {
 struct ChromiumSlotState {
     chromium: Option<ChromiumProcess>,
     disabled_until: Option<Instant>,
+    warming: bool,
 }
 
 impl HtmlRenderer {
@@ -79,6 +80,7 @@ impl HtmlRenderer {
                         state: Mutex::new(ChromiumSlotState {
                             chromium: None,
                             disabled_until: None,
+                            warming: false,
                         }),
                     })
                     .collect(),
@@ -88,27 +90,9 @@ impl HtmlRenderer {
     }
 
     pub fn warm_up(&self) {
-        let renderer = self.clone();
-        task::spawn_blocking(move || {
-            for slot_index in 0..renderer.slot_count() {
-                let started_at = Instant::now();
-                if let Err(error) = renderer.ensure_chromium(slot_index) {
-                    renderer.disable_persistent_chromium(slot_index);
-                    tracing::warn!(
-                        slot_index = slot_index,
-                        %error,
-                        elapsed_ms = elapsed_ms(started_at),
-                        "failed to warm Chromium renderer slot"
-                    );
-                } else {
-                    tracing::debug!(
-                        slot_index = slot_index,
-                        elapsed_ms = elapsed_ms(started_at),
-                        "warmed Chromium renderer slot"
-                    );
-                }
-            }
-        });
+        for slot_index in 0..self.slot_count() {
+            self.spawn_chromium_warmup(slot_index);
+        }
     }
 
     pub async fn render_png(&self, meta: &EmbedMetadata) -> Result<Vec<u8>> {
@@ -119,7 +103,73 @@ impl HtmlRenderer {
             .context("html card render task failed")?
     }
 
-    fn ensure_chromium(&self, slot_index: usize) -> Result<()> {
+    fn spawn_chromium_warmup(&self, slot_index: usize) {
+        if !self.claim_chromium_warmup(slot_index) {
+            return;
+        }
+
+        let renderer = self.clone();
+        std::thread::spawn(move || {
+            let started_at = Instant::now();
+            if let Err(error) = renderer.run_claimed_chromium_warmup(slot_index) {
+                tracing::warn!(
+                    slot_index = slot_index,
+                    %error,
+                    elapsed_ms = elapsed_ms(started_at),
+                    "failed to warm Chromium renderer slot"
+                );
+            } else {
+                tracing::debug!(
+                    slot_index = slot_index,
+                    elapsed_ms = elapsed_ms(started_at),
+                    "warmed Chromium renderer slot"
+                );
+            }
+        });
+    }
+
+    fn claim_chromium_warmup(&self, slot_index: usize) -> bool {
+        let slot = self.inner.chromium_slots.get(slot_index);
+        let Some(slot) = slot else {
+            return false;
+        };
+        let mut state = match slot.state.try_lock() {
+            Ok(state) => state,
+            Err(TryLockError::WouldBlock) => return false,
+            Err(TryLockError::Poisoned(_)) => {
+                tracing::warn!(
+                    slot_index = slot_index,
+                    "persistent Chromium renderer slot lock is poisoned"
+                );
+                return false;
+            }
+        };
+
+        if state.warming || persistent_chromium_cooldown_remaining(&mut state).is_some() {
+            return false;
+        }
+
+        match chromium_process_ready(&mut state.chromium) {
+            Ok(true) => false,
+            Ok(false) => {
+                stop_chromium_process(&mut state.chromium);
+                state.warming = true;
+                true
+            }
+            Err(error) => {
+                tracing::warn!(
+                    slot_index = slot_index,
+                    %error,
+                    "failed to inspect persistent Chromium renderer slot; restarting in background"
+                );
+                stop_chromium_process(&mut state.chromium);
+                state.warming = true;
+                true
+            }
+        }
+    }
+
+    fn run_claimed_chromium_warmup(&self, slot_index: usize) -> Result<()> {
         let slot = self
             .inner
             .chromium_slots
@@ -130,11 +180,21 @@ impl HtmlRenderer {
             .lock()
             .map_err(|_| anyhow!("Chromium renderer slot {slot_index} lock is poisoned"))?;
 
-        if !persistent_chromium_slot_available(&mut state) {
-            return Ok(());
+        let result = ensure_chromium_process(&mut state.chromium, slot_index).map(|_| ());
+        state.warming = false;
+
+        if let Err(error) = result {
+            stop_chromium_process(&mut state.chromium);
+            let cooldown = disable_persistent_chromium_slot(&mut state);
+            tracing::debug!(
+                slot_index = slot_index,
+                cooldown_ms = cooldown.as_millis(),
+                "disabled persistent Chromium renderer slot"
+            );
+            return Err(error);
         }
 
-        ensure_chromium_process(&mut state.chromium, slot_index).map(|_| ())
+        Ok(())
     }
 
     fn render_png_sync(&self, meta: &EmbedMetadata) -> Result<Vec<u8>> {
@@ -200,6 +260,7 @@ impl HtmlRenderer {
         let start = self.inner.next_slot.fetch_add(1, Ordering::Relaxed) % slot_count;
         let mut saw_busy_slot = false;
         let mut cooling_slots = 0_usize;
+        let mut warming_slots = 0_usize;
         let mut next_retry_ms: Option<u128> = None;
 
         for offset in 0..slot_count {
@@ -226,13 +287,43 @@ impl HtmlRenderer {
                 continue;
             }
 
-            return capture_with_available_persistent_slot(&mut state, slot_index, url).map(Some);
+            if state.warming {
+                warming_slots += 1;
+                continue;
+            }
+
+            match chromium_process_ready(&mut state.chromium) {
+                Ok(true) => {
+                    return capture_with_available_persistent_slot(&mut state, slot_index, url)
+                        .map(Some);
+                }
+                Ok(false) => {
+                    warming_slots += 1;
+                    drop(state);
+                    self.spawn_chromium_warmup(slot_index);
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        slot_index = slot_index,
+                        %error,
+                        "failed to inspect persistent Chromium renderer slot"
+                    );
+                    stop_chromium_process(&mut state.chromium);
+                    let cooldown = disable_persistent_chromium_slot(&mut state);
+                    tracing::debug!(
+                        slot_index = slot_index,
+                        cooldown_ms = cooldown.as_millis(),
+                        "disabled persistent Chromium renderer slot"
+                    );
+                }
+            }
         }
 
         if saw_busy_slot {
             tracing::debug!(
                 slot_count = slot_count,
                 cooling_slots = cooling_slots,
+                warming_slots = warming_slots,
                 next_retry_ms = next_retry_ms.unwrap_or_default(),
                 "all persistent Chromium renderer slots are busy"
             );
@@ -242,26 +333,11 @@ impl HtmlRenderer {
         tracing::debug!(
             slot_count = slot_count,
             cooling_slots = cooling_slots,
+            warming_slots = warming_slots,
             next_retry_ms = next_retry_ms.unwrap_or_default(),
-            "no persistent Chromium renderer slot available"
+            "no ready persistent Chromium renderer slot available"
         );
         Ok(None)
-    }
-
-    fn disable_persistent_chromium(&self, slot_index: usize) {
-        let Some(slot) = self.inner.chromium_slots.get(slot_index) else {
-            return;
-        };
-        let Ok(mut state) = slot.state.lock() else {
-            return;
-        };
-
-        let cooldown = disable_persistent_chromium_slot(&mut state);
-        tracing::debug!(
-            slot_index = slot_index,
-            cooldown_ms = cooldown.as_millis(),
-            "disabled persistent Chromium renderer slot"
-        );
     }
 
     fn slot_count(&self) -> usize {
@@ -299,7 +375,20 @@ fn capture_with_available_persistent_slot(
     url: &str,
 ) -> Result<Vec<u8>> {
     let started_at = Instant::now();
-    match capture_with_chromium_process(&mut state.chromium, slot_index, url) {
+    let result = (|| {
+        let chromium = state
+            .chromium
+            .as_mut()
+            .ok_or_else(|| anyhow!("persistent Chromium renderer slot is not warmed"))?;
+        if let Some(status) = chromium.child.try_wait()? {
+            return Err(anyhow!(
+                "persistent Chromium renderer slot exited before capture with status {status}"
+            ));
+        }
+        chromium.capture(url)
+    })();
+
+    match result {
         Ok(bytes) => {
             tracing::debug!(
                 slot_index = slot_index,
@@ -327,8 +416,11 @@ fn capture_with_available_persistent_slot(
     }
 }
 
-fn persistent_chromium_slot_available(state: &mut ChromiumSlotState) -> bool {
-    persistent_chromium_cooldown_remaining(state).is_none()
+fn chromium_process_ready(guard: &mut Option<ChromiumProcess>) -> Result<bool> {
+    match guard.as_mut() {
+        Some(chromium) => Ok(chromium.child.try_wait()?.is_none()),
+        None => Ok(false),
+    }
 }
 
 fn persistent_chromium_cooldown_remaining(state: &mut ChromiumSlotState) -> Option<Duration> {
@@ -348,15 +440,6 @@ fn disable_persistent_chromium_slot(state: &mut ChromiumSlotState) -> Duration {
     let cooldown = persistent_chromium_cooldown();
     state.disabled_until = Some(Instant::now() + cooldown);
     cooldown
-}
-
-fn capture_with_chromium_process(
-    guard: &mut Option<ChromiumProcess>,
-    slot_index: usize,
-    url: &str,
-) -> Result<Vec<u8>> {
-    let chromium = ensure_chromium_process(guard, slot_index)?;
-    chromium.capture(url)
 }
 
 fn ensure_chromium_process(

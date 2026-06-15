@@ -1312,7 +1312,7 @@ pub async fn metadata_for_path(
         }
         MetadataRoute::Database => Some(database_metadata(client, config, query).await),
         MetadataRoute::Timeline => Some(timeline_metadata(client, config).await),
-        MetadataRoute::Tierlist => Some(tierlist_metadata(client, config).await),
+        MetadataRoute::Tierlist => Some(tierlist_metadata(client, config, query).await),
         MetadataRoute::Rankings => Some(rankings_metadata(client, config, query).await),
         MetadataRoute::Activity => Some(activity_metadata(client, config, query).await),
         MetadataRoute::ActivityDetail { viewer_id } => {
@@ -2819,7 +2819,7 @@ async fn page_metadata_by_slug(
         "home" => home_metadata(client, config).await,
         "database" => page_metadata(config, "database", "/database", Some("Database")),
         "timeline" => timeline_metadata(client, config).await,
-        "tierlist" => tierlist_metadata(client, config).await,
+        "tierlist" => tierlist_metadata(client, config, query).await,
         "rankings" => rankings_metadata(client, config, query).await,
         "activity" => activity_metadata(client, config, query).await,
         "circles" => circles_metadata(client, config, query).await,
@@ -2871,8 +2871,8 @@ async fn timeline_metadata(client: &Client, config: &Config) -> EmbedMetadata {
     meta
 }
 
-async fn tierlist_metadata(client: &Client, config: &Config) -> EmbedMetadata {
-    let mut meta = page_metadata(config, "tierlist", "/tierlist", Some("Tierlist"));
+async fn tierlist_metadata(client: &Client, config: &Config, query: Option<&str>) -> EmbedMetadata {
+    let mut meta = tierlist_page_metadata(config, query);
     meta.tierlist = fetch_tierlist_details(client, config).await;
     if let Some(details) = &meta.tierlist {
         let card_count = details
@@ -2885,6 +2885,14 @@ async fn tierlist_metadata(client: &Client, config: &Config) -> EmbedMetadata {
             upsert_metric(&mut meta.metrics, "Generated", generated_at);
         }
     }
+    meta
+}
+
+fn tierlist_page_metadata(config: &Config, query: Option<&str>) -> EmbedMetadata {
+    let clean_query = clean_query(query, &config.debug_query_key);
+    let mut meta = page_metadata(config, "tierlist", "/tierlist", Some("Tierlist"));
+    meta.canonical_url = absolute_url_with_query(config, "/tierlist", clean_query.as_deref());
+    meta.image_url = image_url_with_query(config, "page", "tierlist", clean_query.as_deref());
     meta
 }
 
@@ -7523,6 +7531,18 @@ mod tests {
         assert!(meta
             .image_url
             .starts_with("https://uma.moe/__embeds/images/"));
+    }
+
+    #[test]
+    fn tierlist_query_preserves_image_cache_bust() {
+        let meta = tierlist_page_metadata(&config(), Some("sfds&__embed=1"));
+
+        assert_eq!(meta.canonical_url, "https://uma.moe/tierlist?sfds=");
+        assert_eq!(
+            meta.image_url,
+            "https://uma.moe/__embeds/images/page/tierlist.png?sfds="
+        );
+        assert_eq!(meta.kind_label, "Tierlist");
     }
 
     #[test]
