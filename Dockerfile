@@ -16,12 +16,16 @@ FROM debian:bookworm-slim AS runtime
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates chromium curl fonts-dejavu-core fonts-noto-cjk; \
+    apt-get install -y --no-install-recommends ca-certificates chromium curl fonts-dejavu-core fonts-inter-variable fonts-noto-cjk; \
     rm -rf /var/lib/apt/lists/*; \
+    mkdir -p /tmp/.cache/fontconfig; \
+    chmod -R 1777 /tmp/.cache; \
     useradd --system --uid 10001 --home /nonexistent --shell /usr/sbin/nologin embeds
 
 COPY --from=build /app/target/release/umamoe-embeds /usr/local/bin/umamoe-embeds
 
+ENV HOME=/tmp
+ENV XDG_CACHE_HOME=/tmp/.cache
 ENV UMAMOE_EMBEDS_BIND=0.0.0.0:8080
 EXPOSE 8080
 
