@@ -40,6 +40,7 @@ const HEIGHT: u32 = 630;
 const DEFAULT_CHROMIUM_STARTUP_TIMEOUT_SECONDS: u64 = 45;
 const DEFAULT_CHROMIUM_RENDER_TIMEOUT_SECONDS: u64 = 15;
 const DEFAULT_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS: u64 = 900;
+const DEFAULT_CHROMIUM_DEBUG_PORT_BASE: u16 = 39_200;
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 12 * 1024 * 1024;
 static RENDER_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -276,6 +277,7 @@ struct ChromiumProcess {
     port: u16,
     profile_dir: PathBuf,
     cache_dir: PathBuf,
+    stderr_path: PathBuf,
 }
 
 fn capture_with_available_persistent_slot(
@@ -376,6 +378,7 @@ impl ChromiumProcess {
         let base = env::temp_dir();
         let profile_dir = base.join(format!("umamoe-embed-chrome-profile-{id}"));
         let cache_dir = base.join(format!("umamoe-embed-chrome-cache-{id}"));
+        let stderr_path = cache_dir.join("chromium-stderr.log");
         fs::create_dir_all(&profile_dir).with_context(|| {
             format!(
                 "failed to create persistent Chromium profile at {}",
@@ -386,6 +389,12 @@ impl ChromiumProcess {
             format!(
                 "failed to create persistent Chromium cache at {}",
                 cache_dir.display()
+            )
+        })?;
+        let stderr = fs::File::create(&stderr_path).with_context(|| {
+            format!(
+                "failed to create persistent Chromium stderr log at {}",
+                stderr_path.display()
             )
         })?;
 
@@ -443,7 +452,7 @@ impl ChromiumProcess {
             .env("XDG_CONFIG_HOME", &profile_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(stderr))
             .spawn()
             .with_context(|| format!("failed to start Chromium binary `{chromium}`"))?;
 
@@ -452,8 +461,14 @@ impl ChromiumProcess {
             port: configured_port.unwrap_or(0),
             profile_dir,
             cache_dir,
+            stderr_path,
         };
         process.wait_until_ready()?;
+        tracing::debug!(
+            slot_index = slot_index,
+            port = process.port,
+            "persistent Chromium renderer slot exposed DevTools"
+        );
         Ok(process)
     }
 
@@ -462,8 +477,9 @@ impl ChromiumProcess {
         let started_at = SystemTime::now();
         loop {
             if let Some(status) = self.child.try_wait()? {
-                return Err(anyhow!(
-                    "Chromium exited during startup with status {status}"
+                return Err(chromium_startup_error(
+                    format!("Chromium exited during startup with status {status}"),
+                    &self.stderr_path,
                 ));
             }
 
@@ -478,10 +494,13 @@ impl ChromiumProcess {
             }
 
             if started_at.elapsed().unwrap_or_default() > startup_timeout {
-                return Err(anyhow!(
-                    "Chromium did not expose DevTools within {:?}; profile={}",
-                    startup_timeout,
-                    self.profile_dir.display()
+                return Err(chromium_startup_error(
+                    format!(
+                        "Chromium did not expose DevTools within {:?}; profile={}",
+                        startup_timeout,
+                        self.profile_dir.display()
+                    ),
+                    &self.stderr_path,
                 ));
             }
 
@@ -3533,6 +3552,9 @@ fn chromium_binary() -> String {
 }
 
 fn chromium_debug_port(slot_index: usize) -> Result<Option<u16>> {
+    let offset = u16::try_from(slot_index)
+        .context("UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY is too large for debug ports")?;
+
     if let Ok(value) = env::var("UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT") {
         let value = value.trim();
         if !value.is_empty() {
@@ -3542,8 +3564,6 @@ fn chromium_debug_port(slot_index: usize) -> Result<Option<u16>> {
             if base_port == 0 {
                 return Ok(Some(0));
             }
-            let offset = u16::try_from(slot_index)
-                .context("UMAMOE_EMBEDS_RENDER_MAX_CONCURRENCY is too large for debug ports")?;
             let port = base_port.checked_add(offset).ok_or_else(|| {
                 anyhow!(
                     "UMAMOE_EMBEDS_CHROMIUM_DEBUG_PORT plus renderer slot exceeded TCP port range"
@@ -3553,7 +3573,12 @@ fn chromium_debug_port(slot_index: usize) -> Result<Option<u16>> {
         }
     }
 
-    Ok(None)
+    let port = DEFAULT_CHROMIUM_DEBUG_PORT_BASE
+        .checked_add(offset)
+        .ok_or_else(|| {
+            anyhow!("default Chromium debug port plus renderer slot exceeded TCP port range")
+        })?;
+    Ok(Some(port))
 }
 
 fn read_devtools_active_port(profile_dir: &Path) -> Result<Option<u16>> {
@@ -3593,6 +3618,29 @@ fn persistent_chromium_cooldown() -> Duration {
         "UMAMOE_EMBEDS_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS",
         DEFAULT_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS,
     )
+}
+
+fn chromium_startup_error(message: String, stderr_path: &Path) -> anyhow::Error {
+    let stderr_tail = file_tail(stderr_path, 1200);
+    if stderr_tail.is_empty() {
+        anyhow!("{message}")
+    } else {
+        anyhow!("{message}; stderr_tail={stderr_tail}")
+    }
+}
+
+fn file_tail(path: &Path, max_chars: usize) -> String {
+    let Ok(contents) = fs::read_to_string(path) else {
+        return String::new();
+    };
+    let trimmed = contents.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let mut chars = trimmed.chars().rev().take(max_chars).collect::<Vec<_>>();
+    chars.reverse();
+    chars.into_iter().collect()
 }
 
 fn elapsed_ms(started_at: Instant) -> u128 {
@@ -4124,7 +4172,30 @@ mod tests {
 
     #[test]
     fn renders_activity_as_page_specific_card() {
-        let html = render_card_html(&overview_meta("Activity", "https://uma.moe/activity"));
+        let mut meta = overview_meta("Activity", "https://uma.moe/activity");
+        meta.metrics.extend([
+            EmbedMetric {
+                label: "Rank 1".to_string(),
+                value: "#1".to_string(),
+            },
+            EmbedMetric {
+                label: "Trainer 1".to_string(),
+                value: "Real Trainer".to_string(),
+            },
+            EmbedMetric {
+                label: "Viewer 1".to_string(),
+                value: "ID 123456789".to_string(),
+            },
+            EmbedMetric {
+                label: "Score 1".to_string(),
+                value: "99".to_string(),
+            },
+            EmbedMetric {
+                label: "Score Class 1".to_string(),
+                value: "score-high".to_string(),
+            },
+        ]);
+        let html = render_card_html(&meta);
 
         assert!(html.contains("activity-card"));
         assert!(html.contains("Top 100 Club Activity Reports"));
@@ -4134,6 +4205,16 @@ mod tests {
         assert!(html.contains("activity-row score-high"));
         assert!(!html.contains("record-card"));
         assert!(!html.contains("overview-body"));
+    }
+
+    #[test]
+    fn activity_card_without_rows_does_not_render_demo_data() {
+        let html = render_card_html(&overview_meta("Activity", "https://uma.moe/activity"));
+
+        assert!(html.contains("Live shame list unavailable"));
+        assert!(!html.contains("Observed trainer"));
+        assert!(!html.contains("Activity report"));
+        assert!(!html.contains("Snapshot row"));
     }
 
     #[test]

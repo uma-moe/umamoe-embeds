@@ -267,6 +267,31 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: var(--row-bg);
     }}
 
+    .activity-empty {{
+      display: grid;
+      grid-row: 1 / -1;
+      place-content: center;
+      gap: 8px;
+      min-height: 0;
+      border: 1px solid rgba(239, 154, 154, 0.24);
+      border-left: 3px solid rgba(239, 154, 154, 0.74);
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(239, 154, 154, 0.055), rgba(255, 255, 255, 0.02));
+      text-align: center;
+    }}
+
+    .activity-empty strong {{
+      color: var(--text-primary);
+      font-size: 18px;
+      font-weight: 900;
+    }}
+
+    .activity-empty span {{
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 700;
+    }}
+
     .score-critical {{
       --tier-color: rgba(229, 115, 115, 0.74);
       --row-border: rgba(229, 115, 115, 0.2);
@@ -1369,6 +1394,14 @@ fn nice_time_axis_max(raw_max_seconds: f64) -> f64 {
 }
 
 fn render_rows(rows: &[ActivityRow]) -> String {
+    if rows.is_empty() {
+        return r#"<article class="activity-empty">
+        <strong>Live shame list unavailable</strong>
+        <span>The embed could not load real activity rows from the backend.</span>
+      </article>"#
+            .to_string();
+    }
+
     rows.iter()
         .map(|row| {
             format!(
@@ -1485,169 +1518,7 @@ fn activity_rows(meta: &EmbedMetadata) -> Vec<ActivityRow> {
         });
     }
 
-    if rows.is_empty() {
-        return fallback_rows();
-    }
-
     rows
-}
-
-fn fallback_rows() -> Vec<ActivityRow> {
-    [
-        (
-            "#1",
-            "Observed trainer",
-            "ID tracked",
-            "Circle context",
-            "1d observed",
-            "short-career signal",
-            "high",
-            "fan gain",
-            "active",
-            "rate",
-            "-",
-            "Review",
-            "score-high",
-        ),
-        (
-            "#2",
-            "Activity report",
-            "ID tracked",
-            "Top 100 club",
-            "snapshots",
-            "fan-gain trend",
-            "medium",
-            "tracked",
-            "duration",
-            "careers",
-            "-",
-            "Context",
-            "score-elevated",
-        ),
-        (
-            "#3",
-            "Snapshot row",
-            "ID tracked",
-            "Club rank",
-            "careers",
-            "login changes",
-            "low",
-            "observed",
-            "window",
-            "rate",
-            "-",
-            "Signal",
-            "score-watch",
-        ),
-        (
-            "#4",
-            "Baseline account",
-            "ID tracked",
-            "Public club",
-            "0+ score",
-            "below threshold",
-            "info",
-            "context",
-            "time",
-            "pace",
-            "-",
-            "Low",
-            "score-low",
-        ),
-        (
-            "#5",
-            "Observed account",
-            "ID tracked",
-            "Club snapshot",
-            "days observed",
-            "activity context",
-            "info",
-            "tracked",
-            "active",
-            "rate",
-            "-",
-            "Review",
-            "score-low",
-        ),
-        (
-            "#6",
-            "Fan-gain row",
-            "ID tracked",
-            "Top 100 club",
-            "snapshot data",
-            "rate context",
-            "medium",
-            "fan gain",
-            "window",
-            "pace",
-            "-",
-            "Context",
-            "score-elevated",
-        ),
-        (
-            "#7",
-            "Career signal",
-            "ID tracked",
-            "Public club",
-            "careers",
-            "training pattern",
-            "low",
-            "observed",
-            "time",
-            "rate",
-            "-",
-            "Signal",
-            "score-watch",
-        ),
-        (
-            "#8",
-            "Snapshot account",
-            "ID tracked",
-            "Circle context",
-            "activity",
-            "baseline",
-            "info",
-            "tracked",
-            "active",
-            "pace",
-            "-",
-            "Low",
-            "score-low",
-        ),
-    ]
-    .into_iter()
-    .map(
-        |(
-            rank,
-            trainer,
-            viewer,
-            club,
-            facts,
-            reason,
-            reason_class_name,
-            fan_gain,
-            active,
-            careers_rate,
-            score,
-            score_band,
-            score_class_name,
-        )| ActivityRow {
-            rank: rank.to_string(),
-            trainer: trainer.to_string(),
-            viewer: viewer.to_string(),
-            club: club.to_string(),
-            facts: facts.to_string(),
-            reason: reason.to_string(),
-            reason_class: reason_class(reason_class_name).to_string(),
-            fan_gain: fan_gain.to_string(),
-            active: active.to_string(),
-            careers_rate: careers_rate.to_string(),
-            score: score.to_string(),
-            score_band: score_band.to_string(),
-            score_class: score_class(score_class_name).to_string(),
-        },
-    )
-    .collect()
 }
 
 fn reason_class(value: &str) -> &'static str {

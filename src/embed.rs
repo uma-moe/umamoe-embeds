@@ -3967,7 +3967,26 @@ async fn fetch_json<T: DeserializeOwned>(client: &Client, url: reqwest::Url) -> 
         return None;
     }
 
-    response.json::<T>().await.ok()
+    let body = match response.text().await {
+        Ok(body) => body,
+        Err(error) => {
+            warn!(%error, %url, "embed preview response body could not be read");
+            return None;
+        }
+    };
+
+    match serde_json::from_str::<T>(&body) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            warn!(
+                %error,
+                %url,
+                body_preview = %truncate_chars(&body, 500),
+                "embed preview response did not match expected schema"
+            );
+            None
+        }
+    }
 }
 
 async fn fetch_json_payload<T: DeserializeOwned>(
@@ -4675,11 +4694,12 @@ async fn fetch_activity_hall(
         if let Some(sort) = activity_sort_param(pairs) {
             query.append_pair("sort_by", sort);
         }
-        if let Some(min_score) =
-            query_value(pairs, "minScore").or_else(|| query_value(pairs, "min_score"))
-        {
-            query.append_pair("min_score", min_score);
-        }
+        query.append_pair(
+            "min_score",
+            query_value(pairs, "minScore")
+                .or_else(|| query_value(pairs, "min_score"))
+                .unwrap_or("0"),
+        );
         if let Some(min_days) =
             query_value(pairs, "minDays").or_else(|| query_value(pairs, "min_days"))
         {
