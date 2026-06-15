@@ -2686,27 +2686,33 @@ fn database_result_metadata(
         account_id
     };
 
-    let mut detail_parts = vec![format!(
-        "Top inheritance match for {query_label}: {trainer_name}."
-    )];
+    let mut stat_parts = Vec::new();
     if let Some(affinity) = effective_affinity {
-        detail_parts.push(format!("Affinity {affinity}."));
+        stat_parts.push(format!("{affinity} affinity"));
     }
     if let Some(win_count) = inheritance.win_count {
-        detail_parts.push(format!("{} G1 wins.", format_number(win_count)));
+        stat_parts.push(format!("{} G1 wins", format_number(win_count)));
     }
     if let Some(white_count) = inheritance.white_count {
-        detail_parts.push(format!("{} white skills.", format_number(white_count)));
+        stat_parts.push(format!("{} white skills", format_number(white_count)));
+    }
+
+    let mut detail_parts = vec![
+        format!("Trainer ID: {trainer_id}."),
+        database_result_position_label(total),
+    ];
+    if !stat_parts.is_empty() {
+        detail_parts.push(format!("{}.", stat_parts.join(", ")));
     }
     if let Some(main_parent_id) = inheritance.main_parent_id {
         detail_parts.push(format!(
-            "Main parent {}.",
+            "Main: {}.",
             database_character_embed_label(&resources, main_parent_id)
         ));
     }
     if let (Some(left), Some(right)) = (inheritance.parent_left_id, inheritance.parent_right_id) {
         detail_parts.push(format!(
-            "Parents {} / {}.",
+            "Parents: {} / {}.",
             database_character_embed_label(&resources, left),
             database_character_embed_label(&resources, right)
         ));
@@ -2735,10 +2741,10 @@ fn database_result_metadata(
         metrics.push(metric("Followers", &format_number(followers)));
     }
 
-    let title = if query_label == "shared filters" {
-        format!("{trainer_name} database match | uma.moe")
+    let title = if trainer_name == trainer_id {
+        format!("{trainer_id} | uma.moe")
     } else {
-        format!("{trainer_name} for {query_label} | uma.moe")
+        format!("{trainer_name} | {trainer_id} | uma.moe")
     };
     let highlights = database_query_highlights(search_params);
 
@@ -6604,6 +6610,16 @@ fn database_character_embed_label(resources: &ResourceCatalog, character_id: i64
         .unwrap_or_else(|| format!("Uma #{character_id}"))
 }
 
+fn database_result_position_label(total: i64) -> String {
+    if total <= 0 {
+        "No matching results.".to_string()
+    } else if total > 10_000 {
+        "Result 1 of 10,000+.".to_string()
+    } else {
+        format!("Result 1 of {}.", format_number(total))
+    }
+}
+
 fn database_query_highlights(params: &[(String, String)]) -> DatabaseQueryHighlights {
     let mut matched_factor_ids = Vec::new();
     let mut matched_main_factor_ids = Vec::new();
@@ -7980,8 +7996,14 @@ mod tests {
             "https://uma.moe/database".to_string(),
             "https://uma.moe/__embeds/images/database/query.png".to_string(),
         );
-        assert!(meta.description.contains("Main parent Main Uma."));
-        assert!(meta.description.contains("Parents Left Uma / Right Uma."));
+        assert_eq!(meta.title, "UUC | 540903147493 | uma.moe");
+        assert!(meta
+            .description
+            .starts_with("Trainer ID: 540903147493. Result 1 of 1."));
+        assert!(!meta.description.contains("character 1"));
+        assert!(meta.description.contains("17 affinity"));
+        assert!(meta.description.contains("Main: Main Uma."));
+        assert!(meta.description.contains("Parents: Left Uma / Right Uma."));
         let database = meta.database.unwrap();
 
         assert_eq!(database.affinity_score, Some(17));
