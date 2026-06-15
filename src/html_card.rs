@@ -85,12 +85,20 @@ impl HtmlRenderer {
         let renderer = self.clone();
         task::spawn_blocking(move || {
             for slot_index in 0..renderer.slot_count() {
+                let started_at = Instant::now();
                 if let Err(error) = renderer.ensure_chromium(slot_index) {
                     renderer.disable_persistent_chromium(slot_index);
                     tracing::warn!(
                         slot_index = slot_index,
                         %error,
+                        elapsed_ms = elapsed_ms(started_at),
                         "failed to warm Chromium renderer slot"
+                    );
+                } else {
+                    tracing::debug!(
+                        slot_index = slot_index,
+                        elapsed_ms = elapsed_ms(started_at),
+                        "warmed Chromium renderer slot"
                     );
                 }
             }
@@ -124,6 +132,7 @@ impl HtmlRenderer {
     }
 
     fn render_png_sync(&self, meta: &EmbedMetadata) -> Result<Vec<u8>> {
+        let started_at = Instant::now();
         let files = TempRenderFiles::new()?;
 
         fs::write(&files.html_path, render_card_html(meta)).with_context(|| {
@@ -136,16 +145,46 @@ impl HtmlRenderer {
         let url = file_url(&files.html_path);
 
         match self.capture_with_persistent_chromium(&url) {
-            Ok(Some(bytes)) => return Ok(bytes),
-            Ok(None) => {
-                return render_png_with_chromium_cli(meta).context(
-                    "Chromium CLI renderer failed while no persistent renderer slot was available",
+            Ok(Some(bytes)) => {
+                tracing::debug!(
+                    kind = %meta.kind_label,
+                    canonical_url = %meta.canonical_url,
+                    bytes = bytes.len(),
+                    elapsed_ms = elapsed_ms(started_at),
+                    "HTML card render completed with persistent Chromium"
                 );
+                return Ok(bytes);
+            }
+            Ok(None) => {
+                tracing::debug!(
+                    kind = %meta.kind_label,
+                    canonical_url = %meta.canonical_url,
+                    "no persistent Chromium renderer slot available; using CLI renderer"
+                );
+                let bytes = render_png_with_chromium_cli(meta).context(
+                    "Chromium CLI renderer failed while no persistent renderer slot was available",
+                )?;
+                tracing::debug!(
+                    kind = %meta.kind_label,
+                    canonical_url = %meta.canonical_url,
+                    bytes = bytes.len(),
+                    elapsed_ms = elapsed_ms(started_at),
+                    "HTML card render completed with Chromium CLI"
+                );
+                return Ok(bytes);
             }
             Err(error) => {
                 tracing::warn!(%error, "persistent Chromium render failed; using Chromium CLI renderer");
-                render_png_with_chromium_cli(meta)
-                    .context("Chromium CLI fallback failed after persistent renderer failed")
+                let bytes = render_png_with_chromium_cli(meta)
+                    .context("Chromium CLI fallback failed after persistent renderer failed")?;
+                tracing::debug!(
+                    kind = %meta.kind_label,
+                    canonical_url = %meta.canonical_url,
+                    bytes = bytes.len(),
+                    elapsed_ms = elapsed_ms(started_at),
+                    "HTML card render completed with Chromium CLI after persistent failure"
+                );
+                Ok(bytes)
             }
         }
     }
@@ -181,6 +220,10 @@ impl HtmlRenderer {
         if saw_busy_slot {
             let slot_index = start;
             let slot = &self.inner.chromium_slots[slot_index];
+            tracing::debug!(
+                slot_index = slot_index,
+                "all persistent Chromium renderer slots were busy; waiting for selected slot"
+            );
             let mut state = slot
                 .state
                 .lock()
@@ -192,6 +235,7 @@ impl HtmlRenderer {
             }
         }
 
+        tracing::debug!("all persistent Chromium renderer slots are cooling down");
         Ok(None)
     }
 
@@ -239,8 +283,17 @@ fn capture_with_available_persistent_slot(
     slot_index: usize,
     url: &str,
 ) -> Result<Vec<u8>> {
+    let started_at = Instant::now();
     match capture_with_chromium_process(&mut state.chromium, slot_index, url) {
-        Ok(bytes) => Ok(bytes),
+        Ok(bytes) => {
+            tracing::debug!(
+                slot_index = slot_index,
+                bytes = bytes.len(),
+                elapsed_ms = elapsed_ms(started_at),
+                "persistent Chromium renderer slot captured embed image"
+            );
+            Ok(bytes)
+        }
         Err(error) => {
             tracing::warn!(
                 slot_index = slot_index,
@@ -288,8 +341,18 @@ fn ensure_chromium_process(
     };
 
     if needs_start {
+        let started_at = Instant::now();
+        tracing::debug!(
+            slot_index = slot_index,
+            "starting persistent Chromium renderer slot"
+        );
         stop_chromium_process(guard);
         *guard = Some(ChromiumProcess::start(slot_index)?);
+        tracing::debug!(
+            slot_index = slot_index,
+            elapsed_ms = elapsed_ms(started_at),
+            "started persistent Chromium renderer slot"
+        );
     }
 
     guard
@@ -596,6 +659,7 @@ impl DevToolsSocket {
 }
 
 fn render_png_with_chromium_cli(meta: &EmbedMetadata) -> Result<Vec<u8>> {
+    let started_at = Instant::now();
     let chromium = chromium_binary();
     let files = TempRenderFiles::new()?;
 
@@ -668,6 +732,14 @@ fn render_png_with_chromium_cli(meta: &EmbedMetadata) -> Result<Vec<u8>> {
     if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Err(anyhow!("Chromium screenshot did not produce a PNG"));
     }
+
+    tracing::debug!(
+        kind = %meta.kind_label,
+        canonical_url = %meta.canonical_url,
+        bytes = bytes.len(),
+        elapsed_ms = elapsed_ms(started_at),
+        "Chromium CLI renderer captured embed image"
+    );
 
     Ok(bytes)
 }
@@ -3495,6 +3567,10 @@ fn persistent_chromium_cooldown() -> Duration {
         "UMAMOE_EMBEDS_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS",
         DEFAULT_PERSISTENT_CHROMIUM_COOLDOWN_SECONDS,
     )
+}
+
+fn elapsed_ms(started_at: Instant) -> u128 {
+    started_at.elapsed().as_millis()
 }
 
 fn duration_from_env(name: &str, default_seconds: u64) -> Duration {

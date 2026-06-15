@@ -23,7 +23,7 @@ use axum::{
 use reqwest::Client;
 use tokio::sync::{watch, OwnedSemaphorePermit, Semaphore};
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
@@ -129,13 +129,31 @@ async fn page_handler(
     if (method == Method::GET || method == Method::HEAD)
         && should_render_embed(&headers, &uri, &state.config)
     {
+        let started_at = Instant::now();
         if let Some(meta) =
             metadata_for_path(&state.client, &state.config, uri.path(), uri.query()).await
         {
+            debug!(
+                method = %method,
+                path = uri.path(),
+                query = uri.query().unwrap_or_default(),
+                kind = %meta.kind_label,
+                canonical_url = %meta.canonical_url,
+                elapsed_ms = elapsed_ms(started_at),
+                "embed HTML metadata resolved"
+            );
             let redirect_humans = !has_debug_query(&uri, &state.config.debug_query_key);
             let html = render_embed_html(&meta, redirect_humans);
             return embed_html_response(method, html);
         }
+
+        debug!(
+            method = %method,
+            path = uri.path(),
+            query = uri.query().unwrap_or_default(),
+            elapsed_ms = elapsed_ms(started_at),
+            "embed HTML metadata did not resolve"
+        );
     }
 
     proxy_request(&state.client, &state.config, method, uri, headers, body).await
@@ -146,6 +164,7 @@ async fn image_handler(
     Path((kind, id)): Path<(String, String)>,
     uri: Uri,
 ) -> Response<Body> {
+    let request_started_at = Instant::now();
     let cache_key = image_cache_key(&uri);
     match state.image_cache.get(
         &cache_key,
@@ -153,11 +172,23 @@ async fn image_handler(
         state.config.image_cache_stale_while_revalidate,
     ) {
         CacheLookup::Fresh(bytes) => {
+            debug!(
+                %cache_key,
+                bytes = bytes.len(),
+                elapsed_ms = elapsed_ms(request_started_at),
+                "embed image cache hit"
+            );
             return image_response(&state.config, Method::GET, Some(bytes));
         }
         CacheLookup::Stale(bytes) => {
             if let Some(permit) = state.image_cache.try_acquire_render() {
                 if state.image_cache.try_claim_render(&cache_key) {
+                    debug!(
+                        %cache_key,
+                        kind = %kind,
+                        id = %id,
+                        "stale embed image cache hit; queued background refresh"
+                    );
                     let state = state.clone();
                     let cache_key = cache_key.clone();
                     let kind = kind.clone();
@@ -169,31 +200,79 @@ async fn image_handler(
                             .await;
                         state.image_cache.finish_render(&cache_key);
                     });
+                } else {
+                    debug!(
+                        %cache_key,
+                        "stale embed image cache hit; refresh already in flight"
+                    );
                 }
+            } else {
+                debug!(
+                    %cache_key,
+                    "stale embed image cache hit; refresh skipped because renderer permits are busy"
+                );
             }
 
+            debug!(
+                %cache_key,
+                bytes = bytes.len(),
+                elapsed_ms = elapsed_ms(request_started_at),
+                "served stale embed image cache entry"
+            );
             return image_response(&state.config, Method::GET, Some(bytes));
         }
-        CacheLookup::Missing => {}
+        CacheLookup::Missing => {
+            debug!(%cache_key, kind = %kind, id = %id, "embed image cache miss");
+        }
     }
 
+    let metadata_started_at = Instant::now();
     let Some(meta) =
         metadata_for_image(&state.client, &state.config, &kind, &id, uri.query()).await
     else {
+        debug!(
+            %cache_key,
+            kind = %kind,
+            id = %id,
+            elapsed_ms = elapsed_ms(metadata_started_at),
+            "embed image metadata did not resolve"
+        );
         return plain_response(StatusCode::NOT_FOUND, "Unknown embed image.");
     };
+    debug!(
+        %cache_key,
+        kind = %kind,
+        id = %id,
+        meta_kind = %meta.kind_label,
+        canonical_url = %meta.canonical_url,
+        elapsed_ms = elapsed_ms(metadata_started_at),
+        "embed image metadata resolved"
+    );
 
     let bytes = match state.image_cache.claim_render(&cache_key) {
         RenderClaim::Started => {
+            let permit_started_at = Instant::now();
             let _permit = state.image_cache.acquire_render().await;
+            debug!(
+                %cache_key,
+                wait_ms = elapsed_ms(permit_started_at),
+                "acquired embed image render permit"
+            );
             let result = render_image_bytes(&state, &meta).await;
             state.image_cache.finish_render(&cache_key);
             result
         }
         RenderClaim::Waiting(mut receiver) => {
+            let wait_started_at = Instant::now();
+            debug!(%cache_key, "waiting for in-flight embed image render");
             if !*receiver.borrow() {
                 let _ = receiver.changed().await;
             }
+            debug!(
+                %cache_key,
+                wait_ms = elapsed_ms(wait_started_at),
+                "in-flight embed image render finished"
+            );
 
             match state.image_cache.get(
                 &cache_key,
@@ -218,6 +297,11 @@ async fn image_handler(
         Ok(rendered) => {
             let bytes = Bytes::from(rendered);
             state.image_cache.insert(cache_key, bytes.clone());
+            debug!(
+                bytes = bytes.len(),
+                elapsed_ms = elapsed_ms(request_started_at),
+                "served newly rendered embed image"
+            );
             image_response(&state.config, Method::GET, Some(bytes))
         }
         Err(error) => {
@@ -272,14 +356,42 @@ async fn refresh_image_cache(
     id: String,
     query: Option<String>,
 ) {
+    let refresh_started_at = Instant::now();
+    debug!(%cache_key, kind = %kind, id = %id, "started stale embed image cache refresh");
+    let metadata_started_at = Instant::now();
     let Some(meta) =
         metadata_for_image(&state.client, &state.config, &kind, &id, query.as_deref()).await
     else {
+        debug!(
+            %cache_key,
+            kind = %kind,
+            id = %id,
+            elapsed_ms = elapsed_ms(metadata_started_at),
+            "stale embed image refresh metadata did not resolve"
+        );
         return;
     };
+    debug!(
+        %cache_key,
+        kind = %kind,
+        id = %id,
+        elapsed_ms = elapsed_ms(metadata_started_at),
+        "stale embed image refresh metadata resolved"
+    );
 
     match render_image_bytes(&state, &meta).await {
-        Ok(bytes) => state.image_cache.insert(cache_key, Bytes::from(bytes)),
+        Ok(bytes) => {
+            let byte_count = bytes.len();
+            state
+                .image_cache
+                .insert(cache_key.clone(), Bytes::from(bytes));
+            debug!(
+                %cache_key,
+                bytes = byte_count,
+                elapsed_ms = elapsed_ms(refresh_started_at),
+                "finished stale embed image cache refresh"
+            );
+        }
         Err(error) => warn!(%error, "failed to refresh stale embed image cache entry"),
     }
 }
@@ -288,7 +400,30 @@ async fn render_image_bytes(
     state: &AppState,
     meta: &embed::EmbedMetadata,
 ) -> anyhow::Result<Vec<u8>> {
-    state.html_renderer.render_png(meta).await
+    let started_at = Instant::now();
+    let result = state.html_renderer.render_png(meta).await;
+    match &result {
+        Ok(bytes) => debug!(
+            kind = %meta.kind_label,
+            canonical_url = %meta.canonical_url,
+            bytes = bytes.len(),
+            elapsed_ms = elapsed_ms(started_at),
+            "embed image renderer completed"
+        ),
+        Err(error) => debug!(
+            kind = %meta.kind_label,
+            canonical_url = %meta.canonical_url,
+            %error,
+            elapsed_ms = elapsed_ms(started_at),
+            "embed image renderer failed"
+        ),
+    }
+
+    result
+}
+
+fn elapsed_ms(started_at: Instant) -> u128 {
+    started_at.elapsed().as_millis()
 }
 
 fn image_cache_key(uri: &Uri) -> String {
