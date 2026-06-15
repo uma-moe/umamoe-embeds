@@ -90,6 +90,11 @@ impl HtmlRenderer {
     }
 
     pub fn warm_up(&self) {
+        if !persistent_chromium_enabled() {
+            tracing::debug!("persistent Chromium renderer is disabled");
+            return;
+        }
+
         for slot_index in 0..self.slot_count() {
             self.spawn_chromium_warmup(slot_index);
         }
@@ -104,6 +109,10 @@ impl HtmlRenderer {
     }
 
     fn spawn_chromium_warmup(&self, slot_index: usize) {
+        if !persistent_chromium_enabled() {
+            return;
+        }
+
         if !self.claim_chromium_warmup(slot_index) {
             return;
         }
@@ -256,6 +265,10 @@ impl HtmlRenderer {
     }
 
     fn capture_with_persistent_chromium(&self, url: &str) -> Result<Option<Vec<u8>>> {
+        if !persistent_chromium_enabled() {
+            return Ok(None);
+        }
+
         let slot_count = self.slot_count();
         let start = self.inner.next_slot.fetch_add(1, Ordering::Relaxed) % slot_count;
         let mut saw_busy_slot = false;
@@ -518,7 +531,7 @@ impl ChromiumProcess {
 
         let child = Command::new(&chromium)
             .args([
-                "--headless",
+                "--headless=new",
                 "--disable-background-networking",
                 "--disable-background-mode",
                 "--disable-background-timer-throttling",
@@ -551,6 +564,7 @@ impl ChromiumProcess {
                 "--no-default-browser-check",
                 "--no-first-run",
                 "--no-sandbox",
+                "--no-service-autorun",
                 "--password-store=basic",
                 "--remote-allow-origins=*",
                 "--remote-debugging-address=127.0.0.1",
@@ -826,25 +840,52 @@ fn render_png_with_chromium_cli(meta: &EmbedMetadata) -> Result<Vec<u8>> {
     let screenshot_arg = format!("--screenshot={}", files.png_path.display());
     let window_size_arg = format!("--window-size={WIDTH},{HEIGHT}");
     let profile_arg = format!("--user-data-dir={}", files.profile_dir.display());
+    let cache_arg = format!("--disk-cache-dir={}", files.cache_dir.display());
     let crash_dumps_arg = format!("--crash-dumps-dir={}", files.cache_dir.display());
+    let disabled_features_arg = format!("--disable-features={CHROMIUM_DISABLED_FEATURES}");
     let url = file_url(&files.html_path);
 
     let output = Command::new(&chromium)
         .args([
             "--headless=new",
+            "--disable-background-networking",
+            "--disable-background-mode",
+            "--disable-background-timer-throttling",
             "--disable-breakpad",
+            "--disable-client-side-phishing-detection",
+            "--disable-component-extensions-with-background-pages",
+            "--disable-component-update",
             "--disable-crash-reporter",
+            "--disable-default-apps",
             "--disable-gpu",
             "--disable-dev-shm-usage",
+            "--disable-domain-reliability",
+            "--disable-extensions",
+            "--disable-gcm-registration",
+            "--disable-hang-monitor",
+            "--disable-ipc-flooding-protection",
+            "--disable-notifications",
+            "--disable-popup-blocking",
+            "--disable-prompt-on-repost",
+            "--disable-push-api-background-mode",
+            "--disable-renderer-backgrounding",
             "--disable-setuid-sandbox",
+            "--disable-sync",
             "--hide-scrollbars",
+            "--metrics-recording-only",
             "--mute-audio",
+            "--no-default-browser-check",
             "--no-first-run",
             "--no-sandbox",
+            "--no-service-autorun",
+            "--password-store=basic",
             "--run-all-compositor-stages-before-draw",
+            "--use-mock-keychain",
             "--force-device-scale-factor=1",
+            &disabled_features_arg,
             &window_size_arg,
             &profile_arg,
+            &cache_arg,
             &crash_dumps_arg,
             &screenshot_arg,
             &url,
@@ -852,6 +893,8 @@ fn render_png_with_chromium_cli(meta: &EmbedMetadata) -> Result<Vec<u8>> {
         .env("HOME", &files.profile_dir)
         .env("XDG_CACHE_HOME", &files.cache_dir)
         .env("XDG_CONFIG_HOME", &files.profile_dir)
+        .env("NO_AT_BRIDGE", "1")
+        .env_remove("DBUS_SESSION_BUS_ADDRESS")
         .output()
         .with_context(|| format!("failed to run Chromium binary `{chromium}`"))?;
 
@@ -3742,6 +3785,10 @@ fn persistent_chromium_cooldown() -> Duration {
     )
 }
 
+fn persistent_chromium_enabled() -> bool {
+    bool_from_env("UMAMOE_EMBEDS_PERSISTENT_CHROMIUM_ENABLED", true)
+}
+
 fn chromium_startup_error(message: String, stderr_path: &Path) -> anyhow::Error {
     let stderr_tail = file_tail(stderr_path, 1200);
     if stderr_tail.is_empty() {
@@ -3775,6 +3822,17 @@ fn duration_from_env(name: &str, default_seconds: u64) -> Duration {
         .and_then(|value| value.trim().parse::<u64>().ok())
         .map(Duration::from_secs)
         .unwrap_or_else(|| Duration::from_secs(default_seconds))
+}
+
+fn bool_from_env(name: &str, default_value: bool) -> bool {
+    env::var(name)
+        .ok()
+        .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        })
+        .unwrap_or(default_value)
 }
 
 fn http_request(port: u16, method: &str, path: &str) -> Result<String> {
