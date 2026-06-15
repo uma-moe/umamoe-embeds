@@ -6464,15 +6464,47 @@ fn apply_database_filter_state(
         set_param(params, "uql", uql);
     }
 
-    append_factor_groups(params, state, "b", "blue_sparks", 9);
-    append_factor_groups(params, state, "p", "pink_sparks", 9);
-    append_factor_groups(params, state, "g", "green_sparks", 9);
-    append_factor_groups(params, state, "w", "white_sparks", 9);
+    append_factor_groups(params, state, resources, "b", "blue_sparks", 0, 9);
+    append_factor_groups(params, state, resources, "p", "pink_sparks", 1, 9);
+    append_factor_groups(params, state, resources, "g", "green_sparks", 5, 9);
+    append_factor_groups(params, state, resources, "w", "white_sparks", 2, 9);
 
-    append_flat_factor_ids(params, state, "mb", "main_parent_blue_sparks", 3);
-    append_flat_factor_ids(params, state, "mp", "main_parent_pink_sparks", 3);
-    append_flat_factor_ids(params, state, "mg", "main_parent_green_sparks", 3);
-    append_factor_groups(params, state, "mw", "main_parent_white_sparks", 3);
+    append_flat_factor_ids(
+        params,
+        state,
+        resources,
+        "mb",
+        "main_parent_blue_sparks",
+        0,
+        3,
+    );
+    append_flat_factor_ids(
+        params,
+        state,
+        resources,
+        "mp",
+        "main_parent_pink_sparks",
+        1,
+        3,
+    );
+    append_flat_factor_ids(
+        params,
+        state,
+        resources,
+        "mg",
+        "main_parent_green_sparks",
+        5,
+        3,
+    );
+    append_factor_groups(
+        params,
+        state,
+        resources,
+        "mw",
+        "main_parent_white_sparks",
+        2,
+        3,
+    );
 
     set_param_array(params, state, "ow", "optional_white_sparks");
     set_param_array(params, state, "omw", "optional_main_white_sparks");
@@ -6873,8 +6905,10 @@ fn set_clamped_star_sum(
 fn append_factor_groups(
     params: &mut Vec<(String, String)>,
     state: &Value,
+    resources: Option<&ResourceCatalog>,
     compact: &str,
     key: &str,
+    factor_type: i64,
     max_level: i64,
 ) {
     let Some(groups) = state.get(compact).and_then(Value::as_array) else {
@@ -6882,7 +6916,7 @@ fn append_factor_groups(
     };
 
     for group in groups {
-        if let Some(ids) = factor_entry_ids(group, max_level) {
+        if let Some(ids) = factor_entry_ids(group, max_level, factor_type, resources) {
             append_param(params, key, &csv_numbers(&ids));
         }
     }
@@ -6891,8 +6925,10 @@ fn append_factor_groups(
 fn append_flat_factor_ids(
     params: &mut Vec<(String, String)>,
     state: &Value,
+    resources: Option<&ResourceCatalog>,
     compact: &str,
     key: &str,
+    factor_type: i64,
     max_level: i64,
 ) {
     let Some(groups) = state.get(compact).and_then(Value::as_array) else {
@@ -6909,7 +6945,7 @@ fn append_flat_factor_ids(
                 Some(min_factor_count.map_or(minimum, |current| current.max(minimum)));
         }
 
-        if let Some(group_ids) = factor_entry_ids(group, max_level) {
+        if let Some(group_ids) = factor_entry_ids(group, max_level, factor_type, resources) {
             ids.extend(group_ids);
         }
     }
@@ -6933,12 +6969,14 @@ fn append_flat_factor_ids(
     }
 }
 
-fn factor_entry_ids(entry: &Value, max_level: i64) -> Option<Vec<i64>> {
+fn factor_entry_ids(
+    entry: &Value,
+    max_level: i64,
+    factor_type: i64,
+    resources: Option<&ResourceCatalog>,
+) -> Option<Vec<i64>> {
     let entry = entry.as_array()?;
     let factor_id = number_at(entry, 0)?;
-    if factor_id <= 0 {
-        return None;
-    }
 
     let min_level = number_at(entry, 1).unwrap_or(1).max(1);
     if min_level > max_level {
@@ -6954,16 +6992,59 @@ fn factor_entry_ids(entry: &Value, max_level: i64) -> Option<Vec<i64>> {
         return None;
     }
 
-    Some(
-        (min_level..=max_level)
-            .map(|level| factor_id * 10 + level)
-            .collect(),
-    )
+    let factor_ids = if factor_id > 0 {
+        vec![factor_id]
+    } else {
+        factor_ids_for_type(factor_type, resources)
+    };
+
+    if factor_ids.is_empty() {
+        return None;
+    }
+
+    let mut ids = factor_ids
+        .into_iter()
+        .flat_map(|factor_id| (min_level..=max_level).map(move |level| factor_id * 10 + level))
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids.dedup();
+    Some(ids)
 }
 
 fn factor_entry_min(entry: &Value) -> Option<i64> {
     let entry = entry.as_array()?;
     number_at(entry, 1).map(|value| value.max(1))
+}
+
+fn factor_ids_for_type(factor_type: i64, resources: Option<&ResourceCatalog>) -> Vec<i64> {
+    let mut ids = resources
+        .map(|resources| {
+            resources
+                .factors
+                .iter()
+                .filter_map(|(factor_id, factor)| {
+                    let matches_type = if factor_type == 2 {
+                        matches!(factor.factor_type, 2 | 3 | 4)
+                    } else {
+                        factor.factor_type == factor_type
+                    };
+                    matches_type.then_some(*factor_id)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if ids.is_empty() {
+        ids = match factor_type {
+            0 => vec![10, 20, 30, 40, 50],
+            1 => vec![110, 120, 210, 220, 230, 240, 310, 320, 330, 340],
+            _ => Vec::new(),
+        };
+    }
+
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 fn number_at(values: &[Value], index: usize) -> Option<i64> {
@@ -7756,6 +7837,24 @@ mod tests {
         assert_eq!(param_value(&params, "parent_left_id"), Some("2001"));
         assert_eq!(param_value(&params, "parent_right_id"), Some("3001"));
         assert_eq!(param_value(&params, "min_blue_stars_sum"), Some("9"));
+    }
+
+    #[test]
+    fn database_compact_any_factor_group_expands_and_highlights() {
+        let state = r#"{"b":[[0,8,9]],"lb":4}"#;
+        let encoded = BASE64_STANDARD.encode(state);
+        let query = format!("filters={}", urlencoding::encode(&encoded));
+        let params = database_search_params_from_query(&query);
+
+        assert_eq!(
+            param_value(&params, "blue_sparks"),
+            Some("108,109,208,209,308,309,408,409,508,509")
+        );
+        assert_eq!(param_value(&params, "min_limit_break"), Some("4"));
+
+        let highlights = database_query_highlights(&params);
+        assert_eq!(highlights.matched_factor_ids, vec![10, 20, 30, 40, 50]);
+        assert_eq!(highlights.matched_min_limit_break, Some(4));
     }
 
     #[test]
