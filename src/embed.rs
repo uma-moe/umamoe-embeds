@@ -2504,8 +2504,8 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
             .circle_id
             .map_or_else(|| circle_id.to_string(), |id| id.to_string()),
     }];
-    let displayed_rank = circle.live_rank.or(circle.monthly_rank);
-    let displayed_points = circle.live_points.or(circle.monthly_point);
+    let displayed_rank = circle.monthly_rank.or(circle.live_rank);
+    let displayed_points = circle.monthly_point.or(circle.live_points);
 
     if let Some(rank) = displayed_rank {
         metrics.push(EmbedMetric {
@@ -2531,7 +2531,8 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
             value: compact_number(yesterday_points),
         });
     }
-    if let (Some(points), Some(yesterday_points)) = (displayed_points, circle.yesterday_points) {
+    let today_points = circle.live_points.or(displayed_points);
+    if let (Some(points), Some(yesterday_points)) = (today_points, circle.yesterday_points) {
         metrics.push(EmbedMetric {
             label: "Today Gain".to_string(),
             value: signed_compact_number(points - yesterday_points),
@@ -2595,10 +2596,27 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
             value: compact_number(needed),
         });
     }
+    if let (Some(current), Some(previous)) =
+        (circle.fans_to_next_tier, circle.yesterday_fans_to_next_tier)
+    {
+        metrics.push(EmbedMetric {
+            label: "Needed Delta".to_string(),
+            value: signed_compact_number(current - previous),
+        });
+    }
     if let Some(buffer) = circle.fans_to_lower_tier {
         metrics.push(EmbedMetric {
             label: "Buffer".to_string(),
             value: compact_number(buffer),
+        });
+    }
+    if let (Some(current), Some(previous)) = (
+        circle.fans_to_lower_tier,
+        circle.yesterday_fans_to_lower_tier,
+    ) {
+        metrics.push(EmbedMetric {
+            label: "Buffer Delta".to_string(),
+            value: signed_compact_number(current - previous),
         });
     }
     if let Some(leader) = circle
@@ -2637,7 +2655,7 @@ async fn circles_metadata(client: &Client, config: &Config, query: Option<&str>)
 
     EmbedMetadata {
         title: "Club Leaderboard | uma.moe".to_string(),
-        description: "Find and compare Umamusume clubs by rank, points, members, recruitment, and live fan progress.".to_string(),
+        description: "Find and compare Umamusume clubs by rank, monthly points, tier gaps, members, and recruitment.".to_string(),
         canonical_url: absolute_url_with_query(config, "/circles", clean_query.as_deref()),
         image_url: image_url_with_query(config, "page", "circles", clean_query.as_deref()),
         image_alt: "uma.moe club leaderboard preview image".to_string(),
@@ -5965,9 +5983,9 @@ fn push_circle_row_metrics(metrics: &mut Vec<EmbedMetric>, row: usize, circle: &
         .map(|rank| rank.to_string())
         .unwrap_or_default();
     let points = circle
-        .live_points
-        .filter(|live| Some(*live) > circle.monthly_point)
+        .last_month_point
         .or(circle.monthly_point)
+        .or(circle.live_points)
         .unwrap_or_default();
     let daily = match (circle.monthly_point, circle.yesterday_points) {
         (Some(current), Some(previous)) => signed_compact_number(current - previous),
@@ -6012,6 +6030,35 @@ fn push_circle_row_metrics(metrics: &mut Vec<EmbedMetric>, row: usize, circle: &
     metrics.push(metric(&format!("Club Rank {row}"), &club_rank));
     metrics.push(metric(&format!("Club Rank Id {row}"), &club_rank_id));
     metrics.push(metric(&format!("Points {row}"), &compact_number(points)));
+    if let Some(lower_gap) = circle.fans_to_lower_tier {
+        metrics.push(metric(
+            &format!("Lower Gap {row}"),
+            &compact_number(lower_gap),
+        ));
+    }
+    if let (Some(current), Some(previous)) = (
+        circle.fans_to_lower_tier,
+        circle.yesterday_fans_to_lower_tier,
+    ) {
+        metrics.push(metric(
+            &format!("Lower Gap Delta {row}"),
+            &signed_compact_number(current - previous),
+        ));
+    }
+    if let Some(upper_gap) = circle.fans_to_next_tier {
+        metrics.push(metric(
+            &format!("Upper Gap {row}"),
+            &compact_number(upper_gap),
+        ));
+    }
+    if let (Some(current), Some(previous)) =
+        (circle.fans_to_next_tier, circle.yesterday_fans_to_next_tier)
+    {
+        metrics.push(metric(
+            &format!("Upper Gap Delta {row}"),
+            &signed_compact_number(current - previous),
+        ));
+    }
     metrics.push(metric(&format!("Daily {row}"), &daily));
     metrics.push(metric(&format!("Today {row}"), &today));
 }
@@ -8133,6 +8180,47 @@ mod tests {
 
         assert_eq!(s_row.cards[0].name, "Biko Pegasus");
         assert_eq!(a_row.cards[0].name, "Zenno Rob Roy");
+    }
+
+    #[test]
+    fn circle_list_metrics_prefer_last_month_points_and_tier_gap_deltas() {
+        let metrics = circle_list_metrics(
+            CircleListResponse {
+                circles: vec![CircleDetails {
+                    circle_id: Some(717148109),
+                    name: Some("NFlight".to_string()),
+                    member_count: Some(30),
+                    monthly_rank: Some(1),
+                    monthly_point: Some(6_200_000_000),
+                    live_points: Some(6_300_000_000),
+                    last_month_point: Some(5_900_000_000),
+                    club_rank: Some(11),
+                    fans_to_lower_tier: Some(100_000_000),
+                    yesterday_fans_to_lower_tier: Some(75_000_000),
+                    fans_to_next_tier: Some(0),
+                    yesterday_fans_to_next_tier: Some(4_000_000),
+                    ..CircleDetails::default()
+                }],
+                list: Vec::new(),
+                total: None,
+                total_count: None,
+            },
+            &[],
+            &config(),
+        );
+
+        let metric = |label: &str| {
+            metrics
+                .iter()
+                .find(|metric| metric.label == label)
+                .map(|metric| metric.value.as_str())
+        };
+
+        assert_eq!(metric("Points 1"), Some("5.9B"));
+        assert_eq!(metric("Lower Gap 1"), Some("100.0M"));
+        assert_eq!(metric("Lower Gap Delta 1"), Some("+25.0M"));
+        assert_eq!(metric("Upper Gap 1"), Some("0"));
+        assert_eq!(metric("Upper Gap Delta 1"), Some("-4.0M"));
     }
 
     #[test]

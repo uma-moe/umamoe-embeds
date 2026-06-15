@@ -4305,11 +4305,83 @@ mod tests {
         assert!(html.contains("clubs-card"));
         assert!(html.contains("embed-brand-corner"));
         assert!(!html.contains("summary-strip"));
-        assert!(html.contains("gains-row"));
+        assert!(html.contains("tier-gaps-row"));
+        assert!(html.contains("Lower / Upper"));
+        assert!(html.contains("last month"));
+        assert!(html.contains("gap-delta"));
         assert!(html.contains("Yesterday:"));
         assert!(html.contains("club-row rank-1"));
         assert!(!html.contains("record-card"));
         assert!(!html.contains("overview-body"));
+    }
+
+    #[test]
+    fn club_detail_prefers_last_month_and_renders_gap_deltas() {
+        let meta = EmbedMetadata {
+            title: "NFlight | uma.moe".to_string(),
+            description: "Club profile.".to_string(),
+            canonical_url: "https://uma.moe/circles/717148109".to_string(),
+            image_url: "https://uma.moe/__embeds/images/circle/717148109.png".to_string(),
+            image_alt: "club detail".to_string(),
+            kind_label: "Club".to_string(),
+            metrics: vec![
+                EmbedMetric {
+                    label: "Rank".to_string(),
+                    value: "#1".to_string(),
+                },
+                EmbedMetric {
+                    label: "Points".to_string(),
+                    value: "6.2B".to_string(),
+                },
+                EmbedMetric {
+                    label: "Live Points".to_string(),
+                    value: "6.3B".to_string(),
+                },
+                EmbedMetric {
+                    label: "Last Month Points".to_string(),
+                    value: "5.9B".to_string(),
+                },
+                EmbedMetric {
+                    label: "Club Rank".to_string(),
+                    value: "SS".to_string(),
+                },
+                EmbedMetric {
+                    label: "Club Rank Id".to_string(),
+                    value: "11".to_string(),
+                },
+                EmbedMetric {
+                    label: "Buffer".to_string(),
+                    value: "100.0M".to_string(),
+                },
+                EmbedMetric {
+                    label: "Buffer Delta".to_string(),
+                    value: "+25.0M".to_string(),
+                },
+                EmbedMetric {
+                    label: "Needed".to_string(),
+                    value: "0".to_string(),
+                },
+                EmbedMetric {
+                    label: "Needed Delta".to_string(),
+                    value: "-4.0M".to_string(),
+                },
+                EmbedMetric {
+                    label: "Asset Base".to_string(),
+                    value: "https://uma.moe/assets".to_string(),
+                },
+            ],
+            database: None,
+            tierlist: None,
+            resources: ResourceCatalog::default(),
+        };
+
+        let html = render_card_html(&meta);
+
+        assert!(html.contains(r#"<span class="label">Last Month</span><strong>5.9B</strong>"#));
+        assert!(!html.contains(r#"<span class="label">Live Points</span><strong>6.3B</strong>"#));
+        assert!(html.contains(r#"<span class="tier-gap-delta up">+25.0M</span>"#));
+        assert!(html.contains(r#"<span class="tier-gap-delta down">-4.0M</span>"#));
+        assert!(html.contains("utx_ico_circle_rank_10.webp"));
     }
 
     #[test]

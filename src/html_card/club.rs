@@ -28,13 +28,12 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     let comment = metric_value(&meta.metrics, &["Comment"])
         .unwrap_or_else(|| "No public club comment available.".to_string());
     let (progress_secondary_label, progress_secondary_value, progress_secondary_class) =
-        if let Some(live_points) = metric_value(&meta.metrics, &["Live Points"]) {
-            ("Live Points", live_points, "live")
+        if let Some(last_month_points) = metric_value(&meta.metrics, &["Last Month Points"]) {
+            ("Last Month", last_month_points, "previous")
         } else if let Some(today_gain) = metric_value(&meta.metrics, &["Today Gain"]) {
             ("Today Gain", today_gain, "gain")
-        } else if let Some(last_month_points) = metric_value(&meta.metrics, &["Last Month Points"])
-        {
-            ("Last Month", last_month_points, "previous")
+        } else if let Some(live_points) = metric_value(&meta.metrics, &["Live Points"]) {
+            ("Live Points", live_points, "live")
         } else {
             ("Current", points.clone(), "")
         };
@@ -50,6 +49,26 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     let needed =
         metric_value(&meta.metrics, &["Needed"]).unwrap_or_else(|| "Next tier".to_string());
     let buffer = metric_value(&meta.metrics, &["Buffer"]).unwrap_or_else(|| "Safe".to_string());
+    let needed_delta = metric_value(&meta.metrics, &["Needed Delta"]);
+    let buffer_delta = metric_value(&meta.metrics, &["Buffer Delta"]);
+    let club_rank_id = metric_value(&meta.metrics, &["Club Rank Id"])
+        .and_then(|rank_id| rank_id.trim().parse::<i64>().ok());
+    let buffer_tile = render_tier_gap_tile(
+        &asset_base,
+        "Buffer",
+        &buffer,
+        buffer_delta.as_deref(),
+        target_rank_id(club_rank_id, -1),
+        "safe",
+    );
+    let needed_tile = render_tier_gap_tile(
+        &asset_base,
+        "Needed",
+        &needed,
+        needed_delta.as_deref(),
+        target_rank_id(club_rank_id, 1),
+        "needed",
+    );
     let brand = super::render_brand_corner();
     let brand_css = super::brand_corner_css();
     let chart_js = super::chart_js();
@@ -470,9 +489,34 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
 
     .tier-side {{
       display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      text-align: left;
+    }}
+
+    .tier-gap-main {{
+      display: grid;
       gap: 3px;
       min-width: 0;
-      text-align: center;
+    }}
+
+    .tier-gap-icon {{
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 950;
+    }}
+
+    .tier-gap-icon img {{
+      display: block;
+      width: 30px;
+      height: 30px;
+      object-fit: contain;
     }}
 
     .tier-gap-label {{
@@ -488,6 +532,23 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       font-weight: 900;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }}
+
+    .tier-gap-delta {{
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 900;
+      line-height: 1;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }}
+
+    .tier-gap-delta.up {{
+      color: var(--accent-secondary);
+    }}
+
+    .tier-gap-delta.down {{
+      color: var(--accent-error);
     }}
 
     .safe {{
@@ -657,6 +718,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .progress-meta-row .tier-side {{
       height: 50px;
       align-content: center;
+      padding: 0 10px;
       border: 1px solid rgba(255, 255, 255, 0.052);
       border-radius: 7px;
       background: rgba(255, 255, 255, 0.024);
@@ -932,8 +994,8 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
             <div class="progress-value-tile {progress_secondary_class}"><span class="label">{progress_secondary_label}</span><strong>{progress_secondary_value}</strong></div>
           </div>
           <div class="progress-meta-row">
-            <div class="tier-side"><span class="tier-gap-label">Buffer</span><span class="tier-gap-value safe">{buffer}</span></div>
-            <div class="tier-side"><span class="tier-gap-label">Needed</span><span class="tier-gap-value needed">{needed}</span></div>
+            {buffer_tile}
+            {needed_tile}
           </div>
         </article>
       </div>
@@ -970,8 +1032,8 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
         progress_secondary_value = html_escape(&progress_secondary_value),
         progress_secondary_class = html_escape(progress_secondary_class),
         rank_emblem = rank_emblem,
-        buffer = html_escape(&buffer),
-        needed = html_escape(&needed),
+        buffer_tile = buffer_tile,
+        needed_tile = needed_tile,
         policy = html_escape(&truncate_chars(&policy, 24)),
         progress_summary = progress_summary,
         member_period = html_escape(&member_period),
@@ -1196,7 +1258,7 @@ fn render_visual(meta: &EmbedMetadata) -> String {
         </div>
         <div class="club-member-table">
           <span>Metric</span><span>Status</span><span>Value</span>
-          <b>Live Points</b><em>ranked</em><strong>{points}</strong>
+          <b>Monthly Points</b><em>ranked</em><strong>{points}</strong>
           <b>Members</b><em>active</em><strong>{members}</strong>
           <b>Leader</b><em>public</em><strong>Profile</strong>
         </div>
@@ -1206,6 +1268,83 @@ fn render_visual(meta: &EmbedMetadata) -> String {
         points = html_escape(&points),
         members = html_escape(&members),
     )
+}
+
+fn render_tier_gap_tile(
+    asset_base: &str,
+    label: &str,
+    value: &str,
+    delta: Option<&str>,
+    rank_id: Option<i64>,
+    class_name: &str,
+) -> String {
+    let icon = render_tier_gap_icon(asset_base, rank_id);
+    let delta = delta
+        .filter(|delta| !delta.trim().is_empty() && delta.trim() != "0")
+        .map(render_gap_delta)
+        .unwrap_or_default();
+
+    format!(
+        r#"<div class="tier-side"><span class="tier-gap-icon">{icon}</span><span class="tier-gap-main"><span class="tier-gap-label">{label}</span><span class="tier-gap-value {class_name}">{value}</span>{delta}</span></div>"#,
+        label = html_escape(label),
+        value = html_escape(value),
+        class_name = html_escape(class_name),
+    )
+}
+
+fn render_tier_gap_icon(asset_base: &str, rank_id: Option<i64>) -> String {
+    let Some(rank_id) = rank_id else {
+        return "--".to_string();
+    };
+    let clamped = rank_id.clamp(1, 11);
+    let label = club_rank_label_for_id(clamped);
+    let image = asset_url(
+        asset_base,
+        &format!("images/icon/circle_rank/utx_ico_circle_rank_{clamped:02}.webp"),
+    );
+
+    format!(
+        r#"<img src="{image}" alt="{label}" onerror="this.replaceWith(document.createTextNode('{label}'))">"#,
+        image = html_escape(&image),
+        label = html_escape(&label),
+    )
+}
+
+fn render_gap_delta(delta: &str) -> String {
+    let trimmed = delta.trim();
+    let class_name = if trimmed.starts_with('-') {
+        "down"
+    } else {
+        "up"
+    };
+
+    format!(
+        r#"<span class="tier-gap-delta {class_name}">{value}</span>"#,
+        class_name = class_name,
+        value = html_escape(trimmed),
+    )
+}
+
+fn target_rank_id(current: Option<i64>, offset: i64) -> Option<i64> {
+    let target = current? + offset;
+    (1..=11).contains(&target).then_some(target)
+}
+
+fn club_rank_label_for_id(value: i64) -> String {
+    match value {
+        1 => "D".to_string(),
+        2 => "D+".to_string(),
+        3 => "C".to_string(),
+        4 => "C+".to_string(),
+        5 => "B".to_string(),
+        6 => "B+".to_string(),
+        7 => "A".to_string(),
+        8 => "A+".to_string(),
+        9 => "S".to_string(),
+        10 => "S+".to_string(),
+        11 => "SS".to_string(),
+        _ => format!("R{value}"),
+    }
 }
 
 fn join_class(value: &str) -> &'static str {

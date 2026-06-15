@@ -124,7 +124,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .clubs-head,
     .club-row {{
       display: grid;
-      grid-template-columns: 72px 54px minmax(0, 1fr) 108px 132px 216px;
+      grid-template-columns: 72px 54px minmax(0, 1fr) 108px 132px 226px;
       gap: 12px;
       align-items: center;
       min-width: 0;
@@ -435,6 +435,77 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       line-height: 1;
     }}
 
+    .tier-gaps-row {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 8px minmax(0, 1fr);
+      align-items: center;
+      justify-items: end;
+      gap: 5px;
+      min-width: 0;
+      white-space: nowrap;
+    }}
+
+    .gap-item {{
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr);
+      align-items: center;
+      justify-items: end;
+      gap: 4px;
+      width: 100%;
+      min-width: 0;
+    }}
+
+    .gap-rank {{
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      color: var(--text-muted);
+      font-size: 8px;
+      font-weight: 950;
+    }}
+
+    .gap-rank img {{
+      display: block;
+      width: 22px;
+      height: 22px;
+      object-fit: contain;
+    }}
+
+    .gap-copy {{
+      display: grid;
+      justify-items: end;
+      gap: 2px;
+      min-width: 0;
+    }}
+
+    .gap-value {{
+      color: var(--text-secondary);
+      overflow: hidden;
+      font-size: 12px;
+      font-weight: 900;
+      line-height: 1;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }}
+
+    .gap-delta {{
+      color: var(--text-muted);
+      font-size: 8px;
+      font-weight: 900;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }}
+
+    .gap-delta.up {{
+      color: var(--accent-secondary);
+    }}
+
+    .gap-delta.down {{
+      color: var(--accent-error);
+    }}
+
     .metric-label {{
       color: var(--text-disabled);
       font-size: 8px;
@@ -450,13 +521,13 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     <header class="clubs-header">
       <div class="header-copy">
         <h1 class="clubs-title">{title}</h1>
-        <p class="clubs-subline">Live club leaderboard</p>
+        <p class="clubs-subline">Club leaderboard</p>
       </div>
       {brand}
     </header>
 
     <section class="clubs-body">
-      <div class="clubs-head"><span>Rank</span><span>Tier</span><span>Club</span><span>Members</span><span>Fans</span><span>Daily / Today</span></div>
+      <div class="clubs-head"><span>Rank</span><span>Tier</span><span>Club</span><span>Members</span><span>Last Month</span><span>Lower / Upper</span></div>
       <div class="clubs-table">
         {rows_html}
       </div>
@@ -521,10 +592,14 @@ fn row_from_metrics(meta: &EmbedMetadata, row: usize) -> Option<ClubRow> {
             .unwrap_or_default(),
         points: metric_value(&meta.metrics, &[&format!("Points {row}")])
             .unwrap_or_else(|| "Fans".to_string()),
-        daily: metric_value(&meta.metrics, &[&format!("Daily {row}")])
-            .unwrap_or_else(|| "Daily".to_string()),
-        today: metric_value(&meta.metrics, &[&format!("Today {row}")])
-            .unwrap_or_else(|| "Live".to_string()),
+        lower_gap: metric_value(&meta.metrics, &[&format!("Lower Gap {row}")])
+            .unwrap_or_else(|| "--".to_string()),
+        lower_gap_delta: metric_value(&meta.metrics, &[&format!("Lower Gap Delta {row}")])
+            .unwrap_or_default(),
+        upper_gap: metric_value(&meta.metrics, &[&format!("Upper Gap {row}")])
+            .unwrap_or_else(|| "--".to_string()),
+        upper_gap_delta: metric_value(&meta.metrics, &[&format!("Upper Gap Delta {row}")])
+            .unwrap_or_default(),
     })
 }
 
@@ -542,8 +617,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "SS",
             "11",
             "1.6B",
-            "+38.0M",
-            "+28.0M",
+            "42.0M",
+            "+6.0M",
+            "18.0M",
+            "-3.0M",
         ),
         (
             "#2",
@@ -557,8 +634,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "SS",
             "11",
             "1.5B",
-            "+26.0M",
-            "+17.0M",
+            "36.0M",
+            "+4.0M",
+            "24.0M",
+            "-2.0M",
         ),
         (
             "#3",
@@ -572,8 +651,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "S+",
             "10",
             "1.4B",
-            "+11.0M",
-            "+6.0M",
+            "31.0M",
+            "-1.0M",
+            "29.0M",
+            "+5.0M",
         ),
         (
             "#4",
@@ -587,8 +668,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "S",
             "9",
             "1.3B",
-            "+19.0M",
-            "+10.0M",
+            "28.0M",
+            "+3.0M",
+            "33.0M",
+            "-4.0M",
         ),
         (
             "#5",
@@ -602,8 +685,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "S",
             "9",
             "1.3B",
-            "+14.0M",
-            "+14.0M",
+            "22.0M",
+            "+8.0M",
+            "41.0M",
+            "-1.0M",
         ),
         (
             "#6",
@@ -617,8 +702,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "A+",
             "8",
             "1.2B",
-            "+9.0M",
-            "+6.0M",
+            "19.0M",
+            "+2.0M",
+            "48.0M",
+            "-3.0M",
         ),
         (
             "#7",
@@ -632,8 +719,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "A+",
             "8",
             "1.2B",
-            "+5.0M",
-            "+6.0M",
+            "15.0M",
+            "-2.0M",
+            "52.0M",
+            "+4.0M",
         ),
         (
             "#8",
@@ -647,8 +736,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "A",
             "7",
             "1.1B",
-            "+5.0M",
-            "+6.0M",
+            "14.0M",
+            "+1.0M",
+            "57.0M",
+            "-2.0M",
         ),
         (
             "#9",
@@ -662,8 +753,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "A",
             "7",
             "1.1B",
-            "+8.0M",
-            "+7.0M",
+            "12.0M",
+            "+2.0M",
+            "61.0M",
+            "-1.0M",
         ),
         (
             "#10",
@@ -677,8 +770,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             "B+",
             "6",
             "1.0B",
+            "10.0M",
+            "-1.0M",
+            "66.0M",
             "+3.0M",
-            "+4.0M",
         ),
     ]
     .into_iter()
@@ -698,8 +793,10 @@ fn fallback_rows() -> Vec<ClubRow> {
                 club_rank,
                 club_rank_id,
                 points,
-                daily,
-                today,
+                lower_gap,
+                lower_gap_delta,
+                upper_gap,
+                upper_gap_delta,
             ),
         )| ClubRow {
             class_name: rank_class(index + 1),
@@ -714,8 +811,10 @@ fn fallback_rows() -> Vec<ClubRow> {
             club_rank: club_rank.to_string(),
             club_rank_id: club_rank_id.to_string(),
             points: points.to_string(),
-            daily: daily.to_string(),
-            today: today.to_string(),
+            lower_gap: lower_gap.to_string(),
+            lower_gap_delta: lower_gap_delta.to_string(),
+            upper_gap: upper_gap.to_string(),
+            upper_gap_delta: upper_gap_delta.to_string(),
         },
     )
     .collect()
@@ -732,7 +831,7 @@ fn render_row(row: &ClubRow, asset_base: &str) -> String {
     let join_class = join_class(&row.join);
     let rank_icon = rank_icon(row, asset_base);
     let rank_delta = rank_delta(&row.delta);
-    let gains = render_gains(row);
+    let gaps = render_tier_gaps(row, asset_base);
 
     format!(
         r#"<article class="club-row {class_name}">
@@ -743,8 +842,8 @@ fn render_row(row: &ClubRow, asset_base: &str) -> String {
             <div class="club-meta"><span class="tag {join_class}">{join}</span><span class="policy">{policy}</span><span class="leader">Leader: {leader}</span></div>
           </div>
           <div class="members-box"><span class="metric-value">{members}</span><span class="metric-label">members</span></div>
-          <div class="fans-box"><span class="metric-value">{points}</span><span class="metric-label">fans</span></div>
-          <div class="gains-row">{gains}</div>
+          <div class="fans-box"><span class="metric-value">{points}</span><span class="metric-label">last month</span></div>
+          <div class="tier-gaps-row">{gaps}</div>
         </article>"#,
         class_name = row.class_name,
         rank = html_escape(&row.rank),
@@ -758,25 +857,53 @@ fn render_row(row: &ClubRow, asset_base: &str) -> String {
         leader = html_escape(&truncate_chars(&row.leader, 18)),
         members = html_escape(&row.members),
         points = html_escape(&row.points),
-        gains = gains,
+        gaps = gaps,
     )
 }
 
-fn render_gains(row: &ClubRow) -> String {
-    let daily = gain_item("Daily", &row.daily);
-    let today = gain_item("Today", &row.today);
+fn render_tier_gaps(row: &ClubRow, asset_base: &str) -> String {
+    let lower = tier_gap_item(
+        &row.lower_gap,
+        &row.lower_gap_delta,
+        target_rank_id(parse_rank_id(&row.club_rank_id), -1),
+        asset_base,
+    );
+    let upper = tier_gap_item(
+        &row.upper_gap,
+        &row.upper_gap_delta,
+        target_rank_id(parse_rank_id(&row.club_rank_id), 1),
+        asset_base,
+    );
 
-    format!(r#"{daily}<span class="gain-sep">&middot;</span>{today}"#)
+    format!(r#"{lower}<span class="gain-sep">&middot;</span>{upper}"#)
 }
 
-fn gain_item(label: &str, value: &str) -> String {
-    let class_name = gain_class(value);
+fn tier_gap_item(value: &str, delta: &str, rank_id: Option<i64>, asset_base: &str) -> String {
+    let icon = gap_rank_icon(asset_base, rank_id);
+    let delta = gap_delta(delta);
 
     format!(
-        r#"<span class="gain-item"><span class="gain-label">{label}</span><span class="metric-value gain-value {class_name}">{value}</span></span>"#,
-        label = html_escape(label),
+        r#"<span class="gap-item"><span class="gap-rank">{icon}</span><span class="gap-copy"><span class="gap-value">{value}</span>{delta}</span></span>"#,
         value = html_escape(value),
+    )
+}
+
+fn gap_delta(delta: &str) -> String {
+    let trimmed = delta.trim();
+    if trimmed.is_empty() || trimmed == "0" {
+        return String::new();
+    }
+
+    let class_name = if trimmed.starts_with('-') {
+        "down"
+    } else {
+        "up"
+    };
+
+    format!(
+        r#"<span class="gap-delta {class_name}">{value}</span>"#,
         class_name = class_name,
+        value = html_escape(trimmed),
     )
 }
 
@@ -822,6 +949,50 @@ fn rank_icon(row: &ClubRow, asset_base: &str) -> String {
     )
 }
 
+fn gap_rank_icon(asset_base: &str, rank_id: Option<i64>) -> String {
+    let Some(rank_id) = rank_id else {
+        return "--".to_string();
+    };
+    let clamped = rank_id.clamp(1, 11);
+    let label = club_rank_label_for_id(clamped);
+    let url = asset_url(
+        asset_base,
+        &format!("images/icon/circle_rank/utx_ico_circle_rank_{clamped:02}.webp"),
+    );
+
+    format!(
+        r#"<img src="{url}" alt="{label}" onerror="this.replaceWith(document.createTextNode('{label}'))">"#,
+        url = html_escape(&url),
+        label = html_escape(&label),
+    )
+}
+
+fn parse_rank_id(value: &str) -> Option<i64> {
+    value.trim().parse::<i64>().ok()
+}
+
+fn target_rank_id(current: Option<i64>, offset: i64) -> Option<i64> {
+    let target = current? + offset;
+    (1..=11).contains(&target).then_some(target)
+}
+
+fn club_rank_label_for_id(value: i64) -> String {
+    match value {
+        1 => "D".to_string(),
+        2 => "D+".to_string(),
+        3 => "C".to_string(),
+        4 => "C+".to_string(),
+        5 => "B".to_string(),
+        6 => "B+".to_string(),
+        7 => "A".to_string(),
+        8 => "A+".to_string(),
+        9 => "S".to_string(),
+        10 => "S+".to_string(),
+        11 => "SS".to_string(),
+        _ => format!("R{value}"),
+    }
+}
+
 fn rank_class(row: usize) -> &'static str {
     match row {
         1 => "rank-1",
@@ -840,17 +1011,6 @@ fn join_class(join: &str) -> &'static str {
     }
 }
 
-fn gain_class(value: &str) -> &'static str {
-    let value = value.trim();
-    if value.starts_with('-') {
-        "negative"
-    } else if value.starts_with('+') {
-        "positive"
-    } else {
-        "neutral"
-    }
-}
-
 struct ClubRow {
     class_name: &'static str,
     rank: String,
@@ -864,6 +1024,8 @@ struct ClubRow {
     club_rank: String,
     club_rank_id: String,
     points: String,
-    daily: String,
-    today: String,
+    lower_gap: String,
+    lower_gap_delta: String,
+    upper_gap: String,
+    upper_gap_delta: String,
 }
