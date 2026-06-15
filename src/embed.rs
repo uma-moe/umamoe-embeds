@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use flate2::read::GzDecoder;
 use reqwest::Client;
@@ -759,7 +760,7 @@ struct DatabaseAccountRecord {
     account_id: String,
     #[serde(default)]
     trainer_name: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     follower_num: Option<i64>,
     #[serde(default)]
     last_updated: Option<String>,
@@ -771,31 +772,31 @@ struct DatabaseAccountRecord {
 
 #[derive(Debug, Deserialize, Default)]
 struct DatabaseSupportCardRecord {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     support_card_id: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     limit_break_count: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct DatabaseInheritanceRecord {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     inheritance_id: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     main_parent_id: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     parent_left_id: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     parent_right_id: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     parent_rank: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     parent_rarity: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     win_count: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     white_count: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     affinity_score: Option<i64>,
     #[serde(default)]
     blue_sparks: Vec<i64>,
@@ -805,27 +806,27 @@ struct DatabaseInheritanceRecord {
     green_sparks: Vec<i64>,
     #[serde(default)]
     white_sparks: Vec<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     main_blue_factors: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     main_pink_factors: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     main_green_factors: Option<i64>,
     #[serde(default)]
     main_white_factors: Vec<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     left_blue_factors: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     left_pink_factors: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     left_green_factors: Option<i64>,
     #[serde(default)]
     left_white_factors: Vec<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     right_blue_factors: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     right_pink_factors: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     right_green_factors: Option<i64>,
     #[serde(default)]
     right_white_factors: Vec<i64>,
@@ -835,9 +836,9 @@ struct DatabaseInheritanceRecord {
     left_win_saddles: Vec<i64>,
     #[serde(default)]
     right_win_saddles: Vec<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     support_card_id: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
     limit_break_count: Option<i64>,
     #[serde(default)]
     last_updated: Option<String>,
@@ -1081,12 +1082,14 @@ struct ResourceRaceProgramEntryRaw {
     race_instance_id: Option<Value>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Deserialize, Default)]
 struct BannerTimelineRaw {
     #[serde(default)]
     events: Vec<BannerTimelineEventRaw>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Deserialize, Default)]
 struct BannerTimelineEventRaw {
     #[serde(default, rename = "type")]
@@ -1121,6 +1124,7 @@ struct BannerTimelineEventRaw {
     prediction: Option<BannerTimelinePredictionRaw>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Deserialize, Default)]
 struct BannerTimelinePredictionRaw {
     #[serde(default)]
@@ -1129,6 +1133,7 @@ struct BannerTimelinePredictionRaw {
     calendar_likelihood: Option<BannerTimelineLikelihoodRaw>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Deserialize, Default)]
 struct BannerTimelineLikelihoodRaw {
     #[serde(default)]
@@ -6001,9 +6006,9 @@ async fn fetch_banner_timeline_details(
         }
     }
 
-    let details = fetch_resource_json::<BannerTimelineRaw>(client, config, "banner_timeline")
+    let details = fetch_resource_json::<Value>(client, config, "banner_timeline")
         .await
-        .and_then(timeline_details_from_raw);
+        .and_then(timeline_details_from_value);
 
     if details.is_some() {
         if let Ok(mut guard) = cache.lock() {
@@ -6019,6 +6024,7 @@ async fn fetch_banner_timeline_details(
     details
 }
 
+#[cfg(test)]
 fn timeline_details_from_raw(raw: BannerTimelineRaw) -> Option<TimelineEmbedDetails> {
     let mut events = raw
         .events
@@ -6039,6 +6045,7 @@ fn timeline_details_from_raw(raw: BannerTimelineRaw) -> Option<TimelineEmbedDeta
     }
 }
 
+#[cfg(test)]
 fn timeline_event_from_raw(raw: BannerTimelineEventRaw) -> Option<TimelineEventDetails> {
     let event_type = raw.event_type.trim();
     if event_type.is_empty() {
@@ -6079,6 +6086,171 @@ fn timeline_event_from_raw(raw: BannerTimelineEventRaw) -> Option<TimelineEventD
     })
 }
 
+fn timeline_details_from_value(value: Value) -> Option<TimelineEmbedDetails> {
+    let events = match value {
+        Value::Array(events) => events,
+        Value::Object(mut object) => object.remove("events")?.as_array()?.clone(),
+        _ => return None,
+    };
+
+    let mut events = events
+        .into_iter()
+        .filter_map(timeline_event_from_value)
+        .collect::<Vec<_>>();
+
+    events.sort_by(|left, right| {
+        left.global_release_date
+            .cmp(&right.global_release_date)
+            .then_with(|| left.title.cmp(&right.title))
+    });
+
+    if events.is_empty() {
+        None
+    } else {
+        Some(TimelineEmbedDetails { events })
+    }
+}
+
+fn timeline_event_from_value(value: Value) -> Option<TimelineEventDetails> {
+    let object = value.as_object()?;
+    let event_type = string_field(object, &["type", "event_type", "eventType"])?;
+    let title = string_field(object, &["title", "name"])?;
+    let global_release_date = string_field(
+        object,
+        &[
+            "global_release_date",
+            "globalReleaseDate",
+            "global_date",
+            "globalDate",
+        ],
+    )?;
+
+    if event_type.trim().is_empty()
+        || title.trim().is_empty()
+        || global_release_date.trim().len() < 10
+    {
+        return None;
+    }
+
+    let prediction = object.get("prediction").and_then(Value::as_object);
+    let calendar_likelihood = prediction
+        .and_then(|prediction| prediction.get("calendar_likelihood"))
+        .or_else(|| prediction.and_then(|prediction| prediction.get("calendarLikelihood")))
+        .and_then(Value::as_object);
+
+    Some(TimelineEventDetails {
+        event_type: event_type.trim().to_string(),
+        title: title.trim().to_string(),
+        image_path: string_field(
+            object,
+            &[
+                "image_path",
+                "imagePath",
+                "image",
+                "image_url",
+                "imageUrl",
+                "banner_image",
+                "bannerImage",
+                "banner_image_path",
+                "bannerImagePath",
+            ],
+        )
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string),
+        global_release_date: global_release_date.trim().to_string(),
+        estimated_end_date: string_field(
+            object,
+            &[
+                "estimated_end_date",
+                "estimatedEndDate",
+                "end_date",
+                "endDate",
+            ],
+        )
+        .map(str::trim)
+        .filter(|date| date.len() >= 10)
+        .map(str::to_string),
+        is_confirmed: bool_field(object, &["is_confirmed", "isConfirmed", "confirmed"])
+            .unwrap_or_default(),
+        pickup_card_ids: number_list_field(object, &["pickup_card_ids", "pickupCardIds"]),
+        related_characters: string_list_field(object, &["related_characters", "relatedCharacters"]),
+        related_support_cards: string_list_field(
+            object,
+            &["related_support_cards", "relatedSupportCards"],
+        ),
+        prediction_kind: prediction
+            .and_then(|prediction| string_field(prediction, &["kind", "type"]))
+            .map(str::trim)
+            .filter(|kind| !kind.is_empty())
+            .map(str::to_string),
+        prediction_likelihood: calendar_likelihood
+            .and_then(|likelihood| likelihood.get("score"))
+            .and_then(value_as_f64),
+    })
+}
+
+fn string_field<'a>(object: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .filter_map(|key| object.get(*key))
+        .filter_map(Value::as_str)
+        .find(|value| !value.trim().is_empty())
+}
+
+fn bool_field(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<bool> {
+    keys.iter()
+        .filter_map(|key| object.get(*key))
+        .find_map(|value| {
+            value.as_bool().or_else(|| {
+                value
+                    .as_str()
+                    .and_then(|value| value.trim().parse::<bool>().ok())
+            })
+        })
+}
+
+fn number_list_field(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Vec<i64> {
+    keys.iter()
+        .filter_map(|key| object.get(*key))
+        .find_map(|value| match value {
+            Value::Array(values) => Some(values.iter().filter_map(value_as_i64).collect()),
+            Value::String(value) => Some(
+                value
+                    .split(',')
+                    .filter_map(|part| part.trim().parse::<i64>().ok())
+                    .collect(),
+            ),
+            _ => value_as_i64(value).map(|value| vec![value]),
+        })
+        .unwrap_or_default()
+}
+
+fn string_list_field(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Vec<String> {
+    keys.iter()
+        .filter_map(|key| object.get(*key))
+        .find_map(|value| match value {
+            Value::Array(values) => Some(
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+            ),
+            Value::String(value) => Some(
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 async fn fetch_resource_json<T: DeserializeOwned>(
     client: &Client,
     config: &Config,
@@ -6107,12 +6279,33 @@ async fn fetch_resource_json<T: DeserializeOwned>(
         return None;
     }
 
-    match response.json::<T>().await {
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            warn!(%error, %url, resource = resource_name, "failed to read resource catalog response body");
+            return None;
+        }
+    };
+
+    match decode_resource_json::<T>(&bytes) {
         Ok(resource) => Some(resource),
         Err(error) => {
             warn!(%error, %url, resource = resource_name, "resource catalog response did not match expected schema");
             None
         }
+    }
+}
+
+fn decode_resource_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        let mut decoder = GzDecoder::new(bytes);
+        let mut decoded = Vec::new();
+        decoder
+            .read_to_end(&mut decoded)
+            .context("failed to decompress gzipped resource JSON")?;
+        serde_json::from_slice(&decoded).context("failed to parse decompressed resource JSON")
+    } else {
+        serde_json::from_slice(bytes).context("failed to parse resource JSON")
     }
 }
 
@@ -6674,9 +6867,56 @@ fn value_as_i64(value: &Value) -> Option<i64> {
                     }
                 })
             }),
-        Value::String(value) => value.trim().parse::<i64>().ok(),
+        Value::String(value) => parse_integer_label(value),
         _ => None,
     }
+}
+
+fn parse_integer_label(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(value) = trimmed.parse::<i64>() {
+        return Some(value);
+    }
+
+    let normalized = trimmed.replace([',', '_'], "");
+    if let Ok(value) = normalized.parse::<i64>() {
+        return Some(value);
+    }
+
+    let lower = normalized.to_ascii_lowercase();
+    if lower.starts_with("over ")
+        || lower.starts_with("more than ")
+        || lower.starts_with("at least ")
+        || lower.starts_with(">=")
+        || lower.starts_with('>')
+    {
+        return first_integer_in_label(&normalized);
+    }
+
+    None
+}
+
+fn first_integer_in_label(value: &str) -> Option<i64> {
+    let mut start = None;
+    let mut end = 0;
+
+    for (index, character) in value.char_indices() {
+        let is_sign = character == '-' && start.is_none();
+        if character.is_ascii_digit() || is_sign {
+            if start.is_none() {
+                start = Some(index);
+            }
+            end = index + character.len_utf8();
+        } else if start.is_some() {
+            break;
+        }
+    }
+
+    value.get(start?..end)?.parse::<i64>().ok()
 }
 
 fn value_as_f64(value: &Value) -> Option<f64> {
@@ -7289,6 +7529,51 @@ mod tests {
     }
 
     #[test]
+    fn database_preview_accepts_over_count_labels() {
+        let response: DatabaseSearchResponse = serde_json::from_value(serde_json::json!({
+            "items": [
+                {
+                    "account_id": "540903147493",
+                    "trainer_name": "UUC｜FishPineApl",
+                    "follower_num": "855",
+                    "inheritance": {
+                        "inheritance_id": 46622776,
+                        "main_parent_id": 106801,
+                        "parent_left_id": 102401,
+                        "parent_right_id": 106401,
+                        "parent_rank": "14,616",
+                        "parent_rarity": 15,
+                        "win_count": "over 10000",
+                        "white_count": "over 10,000",
+                        "affinity_score": 72,
+                        "blue_sparks": [203, 402],
+                        "pink_sparks": [3202, 1103, 3302],
+                        "green_sparks": [10680102],
+                        "white_sparks": [2012701],
+                        "main_win_saddles": [10],
+                        "left_win_saddles": [10],
+                        "right_win_saddles": [20],
+                        "support_card_id": "30036",
+                        "limit_break_count": "4"
+                    }
+                }
+            ],
+            "total": "over 10000"
+        }))
+        .expect("database search preview should accept human count labels");
+
+        assert_eq!(response.total, 10_000);
+        let item = response.items.first().expect("top item should deserialize");
+        assert_eq!(item.follower_num, Some(855));
+        let inheritance = item.inheritance.as_ref().expect("inheritance should parse");
+        assert_eq!(inheritance.parent_rank, Some(14_616));
+        assert_eq!(inheritance.win_count, Some(10_000));
+        assert_eq!(inheritance.white_count, Some(10_000));
+        assert_eq!(inheritance.support_card_id, Some(30036));
+        assert_eq!(inheritance.limit_break_count, Some(4));
+    }
+
+    #[test]
     fn database_query_alias_targets_search_field() {
         let name_params = database_search_params_from_query("query=ItsJustWDSam");
         assert_eq!(
@@ -7428,6 +7713,60 @@ mod tests {
             details.events[0].image_path.as_deref(),
             Some("assets/images/story/06_seek_solve_summer_walk_banner.webp")
         );
+    }
+
+    #[test]
+    fn banner_timeline_accepts_generated_resource_shape() {
+        let details = timeline_details_from_value(serde_json::json!({
+            "version": "test",
+            "calculation": {
+                "confirmed_anchor_count": 1
+            },
+            "events": [
+                {
+                    "type": "paid_banner",
+                    "title": "Special Week + 8 more",
+                    "image": "50001.png",
+                    "image_path": "assets/images/paid/banner/50001.png",
+                    "global_release_date": "2021-02-24T03:00:00Z",
+                    "estimated_end_date": "2023-03-29T22:00:00Z",
+                    "is_confirmed": true,
+                    "pickup_card_ids": [100101, "100201"],
+                    "related_characters": ["Special Week", "Silence Suzuka"],
+                    "prediction": {
+                        "kind": "confirmed",
+                        "calendar_likelihood": {
+                            "score": "0.82"
+                        }
+                    }
+                }
+            ]
+        }))
+        .expect("generated banner timeline shape should parse");
+
+        assert_eq!(details.events.len(), 1);
+        assert_eq!(details.events[0].event_type, "paid_banner");
+        assert_eq!(
+            details.events[0].image_path.as_deref(),
+            Some("assets/images/paid/banner/50001.png")
+        );
+        assert_eq!(details.events[0].pickup_card_ids, vec![100101, 100201]);
+        assert_eq!(details.events[0].prediction_likelihood, Some(0.82));
+    }
+
+    #[test]
+    fn resource_json_decoder_accepts_raw_gzip_bytes() {
+        use flate2::{write::GzEncoder, Compression};
+        use std::io::Write;
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder
+            .write_all(br#"{"events":[{"type":"story_event","title":"Story","global_release_date":"2026-06-12T22:00:00Z"}]}"#)
+            .expect("gzip test payload should write");
+        let bytes = encoder.finish().expect("gzip test payload should finish");
+        let decoded: Value = decode_resource_json(&bytes).expect("gzip resource should decode");
+
+        assert!(decoded.get("events").and_then(Value::as_array).is_some());
     }
 
     #[test]
