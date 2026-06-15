@@ -51,23 +51,24 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     let buffer = metric_value(&meta.metrics, &["Buffer"]).unwrap_or_else(|| "Safe".to_string());
     let needed_delta = metric_value(&meta.metrics, &["Needed Delta"]);
     let buffer_delta = metric_value(&meta.metrics, &["Buffer Delta"]);
+    let day_gain = metric_value(&meta.metrics, &["Today Gain", "Member Day Gain"])
+        .unwrap_or_else(|| "--".to_string());
+    let week_gain = metric_value(&meta.metrics, &["Member Week Gain", "Week Gain", "7d Gain"])
+        .unwrap_or_else(|| "--".to_string());
     let club_rank_id = metric_value(&meta.metrics, &["Club Rank Id"])
         .and_then(|rank_id| rank_id.trim().parse::<i64>().ok());
-    let buffer_tile = render_tier_gap_tile(
+    let lower_cutoff_rank = metric_value(&meta.metrics, &["Lower Cutoff Rank", "Max Rank"]);
+    let upper_cutoff_rank = metric_value(&meta.metrics, &["Upper Cutoff Rank", "Min Rank"]);
+    let cutoff_rail = render_cutoff_rail(
         &asset_base,
-        "Buffer",
+        club_rank_id,
+        &rank,
         &buffer,
         buffer_delta.as_deref(),
-        target_rank_id(club_rank_id, -1),
-        "safe",
-    );
-    let needed_tile = render_tier_gap_tile(
-        &asset_base,
-        "Needed",
         &needed,
         needed_delta.as_deref(),
-        target_rank_id(club_rank_id, 1),
-        "needed",
+        lower_cutoff_rank.as_deref(),
+        upper_cutoff_rank.as_deref(),
     );
     let brand = super::render_brand_corner();
     let brand_css = super::brand_corner_css();
@@ -320,10 +321,10 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
 
     .club-body {{
       display: grid;
-      grid-template-rows: 184px minmax(0, 1fr);
-      gap: 10px;
+      grid-template-rows: 206px minmax(0, 1fr);
+      gap: 6px;
       min-height: 0;
-      padding: 14px 30px 4px;
+      padding: 10px 30px 4px;
     }}
 
     .top-grid {{
@@ -487,76 +488,156 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       font-weight: 900;
     }}
 
-    .tier-side {{
+    .cutoff-rail {{
       display: grid;
-      grid-template-columns: 32px minmax(0, 1fr);
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       min-width: 0;
-      text-align: left;
+      min-height: 72px;
+      margin: 0 10px;
+      padding: 4px 10px 8px;
+      border: 1px solid rgba(255, 255, 255, 0.052);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.024);
     }}
 
-    .tier-gap-main {{
+    .cutoff-rail.both {{
+      grid-template-columns: 44px 8px minmax(0, 1fr) 88px minmax(0, 1fr) 8px 44px;
+    }}
+
+    .cutoff-rail.buffer-only {{
+      grid-template-columns: 44px 8px minmax(0, 1fr) 88px minmax(0, 1fr) 8px 44px;
+    }}
+
+    .cutoff-rail.needed-only {{
+      grid-template-columns: 44px 8px minmax(0, 1fr) 88px minmax(0, 1fr) 8px 44px;
+    }}
+
+    .cutoff-node {{
       display: grid;
-      gap: 3px;
+      justify-items: center;
+      gap: 4px;
       min-width: 0;
+      color: var(--text-muted);
+      text-align: center;
     }}
 
-    .tier-gap-icon {{
+    .cutoff-icon {{
       display: grid;
       place-items: center;
       width: 30px;
       height: 30px;
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 950;
+      font-weight: 750;
     }}
 
-    .tier-gap-icon img {{
+    .cutoff-node.dim .cutoff-icon {{
+      opacity: 0.58;
+      filter: grayscale(0.1);
+    }}
+
+    .cutoff-node.active .cutoff-icon {{
+      width: 44px;
+      height: 44px;
+    }}
+
+    .cutoff-node.active {{
+      gap: 6px;
+    }}
+
+    .cutoff-node.active .cutoff-rank {{
+      color: var(--text-secondary);
+    }}
+
+    .cutoff-node.empty {{
+      visibility: hidden;
+    }}
+
+    .cutoff-icon img {{
       display: block;
-      width: 30px;
-      height: 30px;
+      width: 100%;
+      height: 100%;
       object-fit: contain;
+      filter: drop-shadow(0 4px 9px rgba(0, 0, 0, 0.36));
     }}
 
-    .tier-gap-label {{
-      color: var(--text-disabled);
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-    }}
-
-    .tier-gap-value {{
+    .cutoff-rank {{
       overflow: hidden;
-      font-size: 14px;
-      font-weight: 900;
+      max-width: 72px;
+      color: var(--text-muted);
+      font-size: 8px;
+      font-weight: 600;
+      line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
     }}
 
-    .tier-gap-delta {{
+    .cutoff-arrow {{
       color: var(--text-muted);
-      font-size: 10px;
-      font-weight: 900;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1;
+      text-align: center;
+    }}
+
+    .cutoff-arrow.empty {{
+      visibility: hidden;
+    }}
+
+    .cutoff-metric {{
+      display: grid;
+      justify-items: center;
+      gap: 2px;
+      min-width: 0;
+      text-align: center;
+    }}
+
+    .cutoff-label {{
+      color: var(--text-disabled);
+      font-size: 9px;
+      font-weight: 600;
+      line-height: 1;
+      text-transform: uppercase;
+    }}
+
+    .cutoff-value {{
+      overflow: visible;
+      max-width: 100%;
+      font-size: 19px;
+      font-weight: 600;
       line-height: 1;
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }}
 
-    .tier-gap-delta.up {{
+    .cutoff-value.safe {{
       color: var(--accent-secondary);
     }}
 
-    .tier-gap-delta.down {{
-      color: var(--accent-error);
-    }}
-
-    .safe {{
-      color: var(--accent-secondary);
-    }}
-
-    .needed {{
+    .cutoff-value.needed {{
       color: var(--accent-warning);
+    }}
+
+    .cutoff-value.muted {{
+      color: var(--text-muted);
+    }}
+
+    .cutoff-delta {{
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 600;
+      line-height: 1;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }}
+
+    .cutoff-delta.up {{
+      color: var(--accent-secondary);
+    }}
+
+    .cutoff-delta.down {{
+      color: var(--accent-error);
     }}
 
     .rank-center {{
@@ -579,7 +660,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .rank-label {{
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 850;
+      font-weight: 600;
     }}
 
     .chart-card {{
@@ -612,7 +693,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(0, 0, 0, 0.16);
       color: var(--text-secondary);
       font-size: 10px;
-      font-weight: 850;
+      font-weight: 600;
       line-height: 1;
       white-space: nowrap;
     }}
@@ -620,7 +701,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .progress-chip strong {{
       color: var(--text-primary);
       font-size: 11px;
-      font-weight: 900;
+      font-weight: 600;
     }}
 
     .progress-chip.gain strong {{
@@ -629,20 +710,20 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
 
     .progress-value-row {{
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 82px minmax(0, 1fr);
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       align-items: stretch;
       gap: 10px;
-      height: 82px;
-      margin: 0 10px 8px;
+      height: 74px;
+      margin: 0 10px 6px;
     }}
 
-    .progress-value-tile,
-    .progress-value-rank {{
+    .progress-value-tile {{
       min-width: 0;
       display: grid;
       align-content: center;
       justify-items: center;
-      gap: 5px;
+      gap: 4px;
+      padding: 7px 12px;
       border: 1px solid rgba(255, 255, 255, 0.052);
       border-radius: 8px;
       background: rgba(255, 255, 255, 0.024);
@@ -653,14 +734,13 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       line-height: 1;
     }}
 
-    .progress-value-tile strong {{
+    .progress-value-tile > strong {{
       min-width: 0;
-      overflow: hidden;
+      overflow: visible;
       color: var(--accent-primary);
-      font-size: 24px;
-      font-weight: 950;
+      font-size: 27px;
+      font-weight: 600;
       line-height: 1;
-      text-overflow: ellipsis;
       white-space: nowrap;
     }}
 
@@ -676,15 +756,33 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       color: var(--accent-warning);
     }}
 
-    .progress-value-rank .club-rank-emblem {{
-      width: 46px;
-      height: 46px;
-      font-size: 14px;
+    .tile-gain {{
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 12px;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1;
+      text-transform: uppercase;
     }}
 
-    .progress-value-rank .club-rank-emblem img {{
-      width: 46px;
-      height: 46px;
+    .tile-gain > span {{
+      display: block;
+      line-height: 1;
+    }}
+
+    .tile-gain b {{
+      display: block;
+      color: var(--accent-secondary);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }}
 
     .chart-canvas {{
@@ -706,28 +804,6 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       height: 100%;
     }}
 
-    .progress-meta-row {{
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      align-items: center;
-      gap: 10px;
-      margin: 0 10px 8px;
-      min-height: 50px;
-    }}
-
-    .progress-meta-row .tier-side {{
-      height: 50px;
-      align-content: center;
-      padding: 0 10px;
-      border: 1px solid rgba(255, 255, 255, 0.052);
-      border-radius: 7px;
-      background: rgba(255, 255, 255, 0.024);
-    }}
-
-    .progress-meta-row .tier-gap-value {{
-      font-size: 18px;
-    }}
-
     .member-chart {{
       display: grid;
       grid-template-columns: minmax(0, 1fr) 178px;
@@ -745,7 +821,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .member-chart .chart-canvas {{
       height: auto;
       min-height: 0;
-      margin: -2px 0 0 4px;
+      margin: -2px 0 0 18px;
       border: 0;
       background: transparent;
     }}
@@ -989,14 +1065,10 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
         <article class="details-card chart-card">
           <header class="card-header"><h2>Club Progression</h2>{progress_summary}</header>
           <div class="progress-value-row">
-            <div class="progress-value-tile"><span class="label">Monthly Fans</span><strong>{points}</strong></div>
-            <div class="progress-value-rank">{rank_emblem}<span class="rank-label">Rank {rank}</span></div>
-            <div class="progress-value-tile {progress_secondary_class}"><span class="label">{progress_secondary_label}</span><strong>{progress_secondary_value}</strong></div>
+            <div class="progress-value-tile"><span class="label">Monthly Fans</span><strong>{points}</strong><span class="tile-gain"><span>Day</span><b>{day_gain}</b></span></div>
+            <div class="progress-value-tile {progress_secondary_class}"><span class="label">{progress_secondary_label}</span><strong>{progress_secondary_value}</strong><span class="tile-gain"><span>7d</span><b>{week_gain}</b></span></div>
           </div>
-          <div class="progress-meta-row">
-            {buffer_tile}
-            {needed_tile}
-          </div>
+          {cutoff_rail}
         </article>
       </div>
 
@@ -1031,9 +1103,10 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
         progress_secondary_label = html_escape(progress_secondary_label),
         progress_secondary_value = html_escape(&progress_secondary_value),
         progress_secondary_class = html_escape(progress_secondary_class),
+        day_gain = html_escape(&day_gain),
+        week_gain = html_escape(&week_gain),
         rank_emblem = rank_emblem,
-        buffer_tile = buffer_tile,
-        needed_tile = needed_tile,
+        cutoff_rail = cutoff_rail,
         policy = html_escape(&truncate_chars(&policy, 24)),
         progress_summary = progress_summary,
         member_period = html_escape(&member_period),
@@ -1270,29 +1343,147 @@ fn render_visual(meta: &EmbedMetadata) -> String {
     )
 }
 
-fn render_tier_gap_tile(
+fn render_cutoff_rail(
     asset_base: &str,
-    label: &str,
-    value: &str,
-    delta: Option<&str>,
-    rank_id: Option<i64>,
-    class_name: &str,
+    current_rank_id: Option<i64>,
+    current_rank: &str,
+    buffer: &str,
+    buffer_delta: Option<&str>,
+    needed: &str,
+    needed_delta: Option<&str>,
+    lower_cutoff_rank: Option<&str>,
+    upper_cutoff_rank: Option<&str>,
 ) -> String {
-    let icon = render_tier_gap_icon(asset_base, rank_id);
+    let lower_rank_id = target_rank_id(current_rank_id, -1);
+    let upper_rank_id = target_rank_id(current_rank_id, 1);
+    let buffer_metric = render_cutoff_metric("Buffer", buffer, buffer_delta, "safe");
+    let needed_metric = render_cutoff_metric("Needed", needed, needed_delta, "needed");
+    let current = render_cutoff_node(
+        asset_base,
+        current_rank_id,
+        &rank_position_caption(current_rank),
+        "active",
+    );
+    let empty_node = r#"<span class="cutoff-node empty"></span>"#;
+    let empty_arrow = r#"<span class="cutoff-arrow empty"></span>"#;
+
+    match (lower_rank_id, upper_rank_id) {
+        (Some(lower), Some(upper)) => {
+            let lower = render_cutoff_node(
+                asset_base,
+                Some(lower),
+                &cutoff_caption(lower_cutoff_rank, lower),
+                "dim",
+            );
+            let upper = render_cutoff_node(
+                asset_base,
+                Some(upper),
+                &cutoff_caption(upper_cutoff_rank, upper),
+                "dim",
+            );
+            format!(
+                r#"<div class="cutoff-rail both">{lower}<span class="cutoff-arrow">&lsaquo;</span>{buffer_metric}{current}{needed_metric}<span class="cutoff-arrow">&rsaquo;</span>{upper}</div>"#
+            )
+        }
+        (Some(lower), None) => {
+            let lower = render_cutoff_node(
+                asset_base,
+                Some(lower),
+                &cutoff_caption(lower_cutoff_rank, lower),
+                "dim",
+            );
+            let placeholder = render_cutoff_placeholder("Needed");
+            format!(
+                r#"<div class="cutoff-rail buffer-only">{lower}<span class="cutoff-arrow">&lsaquo;</span>{buffer_metric}{current}{placeholder}{empty_arrow}{empty_node}</div>"#
+            )
+        }
+        (None, Some(upper)) => {
+            let upper = render_cutoff_node(
+                asset_base,
+                Some(upper),
+                &cutoff_caption(upper_cutoff_rank, upper),
+                "dim",
+            );
+            let placeholder = render_cutoff_placeholder("Buffer");
+            format!(
+                r#"<div class="cutoff-rail needed-only">{empty_node}{empty_arrow}{placeholder}{current}{needed_metric}<span class="cutoff-arrow">&rsaquo;</span>{upper}</div>"#
+            )
+        }
+        (None, None) => {
+            let placeholder = render_cutoff_placeholder("Needed");
+            format!(
+                r#"<div class="cutoff-rail buffer-only">{empty_node}{empty_arrow}{buffer_metric}{current}{placeholder}{empty_arrow}{empty_node}</div>"#
+            )
+        }
+    }
+}
+
+fn cutoff_caption(cutoff_rank: Option<&str>, fallback_rank_id: i64) -> String {
+    cutoff_rank
+        .map(str::trim)
+        .filter(|rank| !rank.is_empty())
+        .map(|rank| {
+            if rank.to_ascii_lowercase().starts_with("rank ") {
+                rank.to_string()
+            } else if rank.starts_with('#') {
+                format!("Rank {rank}")
+            } else if rank.chars().all(|character| character.is_ascii_digit()) {
+                format!("Rank #{rank}")
+            } else {
+                rank.to_string()
+            }
+        })
+        .unwrap_or_else(|| format!("{} cutoff", club_rank_label_for_id(fallback_rank_id)))
+}
+
+fn rank_position_caption(rank: &str) -> String {
+    let trimmed = rank.trim();
+    if trimmed.is_empty() {
+        "Rank --".to_string()
+    } else if trimmed.to_ascii_lowercase().starts_with("rank ") {
+        trimmed.to_string()
+    } else {
+        format!("Rank {trimmed}")
+    }
+}
+
+fn render_cutoff_metric(label: &str, value: &str, delta: Option<&str>, class_name: &str) -> String {
     let delta = delta
         .filter(|delta| !delta.trim().is_empty() && delta.trim() != "0")
-        .map(render_gap_delta)
+        .map(render_cutoff_delta)
         .unwrap_or_default();
 
     format!(
-        r#"<div class="tier-side"><span class="tier-gap-icon">{icon}</span><span class="tier-gap-main"><span class="tier-gap-label">{label}</span><span class="tier-gap-value {class_name}">{value}</span>{delta}</span></div>"#,
+        r#"<span class="cutoff-metric"><span class="cutoff-label">{label}</span><strong class="cutoff-value {class_name}">{value}</strong>{delta}</span>"#,
         label = html_escape(label),
         value = html_escape(value),
         class_name = html_escape(class_name),
     )
 }
 
-fn render_tier_gap_icon(asset_base: &str, rank_id: Option<i64>) -> String {
+fn render_cutoff_placeholder(label: &str) -> String {
+    format!(
+        r#"<span class="cutoff-metric placeholder"><span class="cutoff-label">{label}</span><strong class="cutoff-value muted">-</strong></span>"#,
+        label = html_escape(label),
+    )
+}
+
+fn render_cutoff_node(
+    asset_base: &str,
+    rank_id: Option<i64>,
+    caption: &str,
+    class_name: &str,
+) -> String {
+    let icon = render_cutoff_icon(asset_base, rank_id);
+
+    format!(
+        r#"<span class="cutoff-node {class_name}"><span class="cutoff-icon">{icon}</span><span class="cutoff-rank">{caption}</span></span>"#,
+        class_name = html_escape(class_name),
+        caption = html_escape(caption),
+    )
+}
+
+fn render_cutoff_icon(asset_base: &str, rank_id: Option<i64>) -> String {
     let Some(rank_id) = rank_id else {
         return "--".to_string();
     };
@@ -1310,7 +1501,7 @@ fn render_tier_gap_icon(asset_base: &str, rank_id: Option<i64>) -> String {
     )
 }
 
-fn render_gap_delta(delta: &str) -> String {
+fn render_cutoff_delta(delta: &str) -> String {
     let trimmed = delta.trim();
     let class_name = if trimmed.starts_with('-') {
         "down"
@@ -1319,7 +1510,7 @@ fn render_gap_delta(delta: &str) -> String {
     };
 
     format!(
-        r#"<span class="tier-gap-delta {class_name}">{value}</span>"#,
+        r#"<span class="cutoff-delta {class_name}">{value}</span>"#,
         class_name = class_name,
         value = html_escape(trimmed),
     )

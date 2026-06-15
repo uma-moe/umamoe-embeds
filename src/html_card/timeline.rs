@@ -56,6 +56,8 @@ const TIMELINE_CARD_GAP: f64 = 14.0;
 const TIMELINE_MIN_ANCHOR_GAP: f64 = 120.0;
 const TIMELINE_MIN_LANE_CARD_GAP: f64 = 36.0;
 const TIMELINE_FIRST_FUTURE_ANCHOR_GAP: f64 = 64.0;
+const TIMELINE_MARKER_MIN_LEFT: f64 = TIMELINE_LEFT_EDGE + 40.0;
+const TIMELINE_MARKER_MAX_LEFT: f64 = TIMELINE_RIGHT_EDGE - 40.0;
 
 pub(super) fn renders_full_card(meta: &EmbedMetadata) -> bool {
     meta.database.is_none() && super::canonical_path_matches(&meta.canonical_url, "/timeline")
@@ -159,7 +161,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background-clip: text;
       color: transparent;
       font-size: 38px;
-      font-weight: 880;
+      font-weight: 760;
       letter-spacing: 0;
       line-height: 0.98;
     }}
@@ -168,7 +170,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-muted);
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 650;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -299,7 +301,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
         rgba(8, 8, 8, 0.92);
       color: var(--event-color);
       font-size: 11px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-align: center;
       white-space: nowrap;
@@ -312,7 +314,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .date-badge small {{
       color: var(--text-secondary);
       font-size: 9px;
-      font-weight: 800;
+      font-weight: 600;
     }}
 
     .event-group.top .date-badge {{
@@ -371,7 +373,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
         #ff7043;
       color: #fff7ef;
       font-size: 11px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-align: center;
       white-space: nowrap;
@@ -384,7 +386,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .today-label small {{
       color: rgba(255, 243, 232, 0.9);
       font-size: 9px;
-      font-weight: 800;
+      font-weight: 600;
     }}
 
     .event-group.character,
@@ -535,7 +537,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       height: 100%;
       color: var(--event-color);
       font-size: 30px;
-      font-weight: 900;
+      font-weight: 700;
       letter-spacing: 0;
     }}
 
@@ -555,7 +557,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       place-items: center;
       color: #4dd0c6;
       font-size: 34px;
-      font-weight: 900;
+      font-weight: 700;
     }}
 
     .event-copy {{
@@ -577,7 +579,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       border-bottom: 0;
       color: var(--text-secondary);
       font-size: 9px;
-      font-weight: 850;
+      font-weight: 650;
       letter-spacing: 0.4px;
       line-height: 1;
       text-transform: uppercase;
@@ -616,17 +618,17 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--accent-warning);
       font-size: 9px;
-      font-weight: 850;
+      font-weight: 650;
       line-height: 1;
       white-space: nowrap;
     }}
 
     .event-title {{
       overflow: hidden;
-      margin: 0 0 4px;
+      margin: 0 0 5px;
       color: var(--text-primary);
       font-size: 13px;
-      font-weight: 880;
+      font-weight: 700;
       line-height: 1.08;
       display: -webkit-box;
       -webkit-line-clamp: 2;
@@ -642,11 +644,11 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       display: grid;
       gap: 3px;
       min-width: 0;
-      margin: -1px 0 5px;
+      margin: 5px 0 0;
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 700;
-      line-height: 1.08;
+      font-weight: 500;
+      line-height: 1.12;
     }}
 
     .event-participants {{
@@ -815,6 +817,7 @@ fn timeline_groups_from_resource(
     let has_current = current_start.is_some();
     let mut today_left = 72.0;
     let mut current_anchor = None;
+    let mut date_anchors: Vec<(SimpleDate, f64)> = Vec::new();
     let mut groups = Vec::new();
     let mut subline_dates: Vec<SimpleDate> = Vec::new();
     let mut top_lane_right = TIMELINE_LEFT_EDGE - TIMELINE_MIN_LANE_CARD_GAP;
@@ -833,6 +836,7 @@ fn timeline_groups_from_resource(
             let anchor = TIMELINE_LEFT_EDGE + anchor_offset;
             top_lane_right = TIMELINE_LEFT_EDGE + width;
             current_anchor = Some(anchor);
+            date_anchors.push((current_start, anchor));
             subline_dates.push(current_start);
             groups.push(make_anchored_timeline_group(
                 current_start,
@@ -866,7 +870,6 @@ fn timeline_groups_from_resource(
         TIMELINE_LEFT_EDGE + future_anchor_offset(1)
     };
     let mut previous_anchor = current_anchor.unwrap_or(today_left);
-    let mut first_future_anchor = None;
     let mut future_index = 0usize;
     for (date, events) in future_groups {
         let candidate_cards = events
@@ -906,9 +909,7 @@ fn timeline_groups_from_resource(
         };
         let cards = candidate_cards.into_iter().take(count).collect::<Vec<_>>();
 
-        if first_future_anchor.is_none() {
-            first_future_anchor = Some(anchor);
-        }
+        date_anchors.push((date, anchor));
         subline_dates.push(date);
         groups.push(make_anchored_timeline_group(
             date,
@@ -932,8 +933,8 @@ fn timeline_groups_from_resource(
         return None;
     }
 
-    if let (Some(left_anchor), Some(right_anchor)) = (current_anchor, first_future_anchor) {
-        today_left = (left_anchor + right_anchor) / 2.0;
+    if let Some(calendar_left) = resolve_today_marker_left(today, &date_anchors) {
+        today_left = calendar_left;
     }
 
     let subline = dynamic_subline(&subline_dates);
@@ -1377,12 +1378,75 @@ fn parse_resource_date(value: &str) -> Option<SimpleDate> {
     Some(SimpleDate { year, month, day })
 }
 
+fn resolve_today_marker_left(today: SimpleDate, anchors: &[(SimpleDate, f64)]) -> Option<f64> {
+    let mut anchors = anchors.to_vec();
+    anchors.sort_by_key(|(date, _)| *date);
+    anchors.dedup_by_key(|(date, _)| *date);
+
+    match anchors.as_slice() {
+        [] => None,
+        [(_, anchor)] => Some(clamp_today_marker(*anchor)),
+        [first, second, ..] if today <= first.0 => Some(clamp_today_marker(
+            interpolate_date_anchor(today, *first, *second),
+        )),
+        anchors => {
+            for pair in anchors.windows(2) {
+                let left = pair[0];
+                let right = pair[1];
+                if today >= left.0 && today <= right.0 {
+                    return Some(clamp_today_marker(interpolate_date_anchor(
+                        today, left, right,
+                    )));
+                }
+            }
+
+            let right = anchors[anchors.len() - 1];
+            let left = anchors[anchors.len() - 2];
+            Some(clamp_today_marker(interpolate_date_anchor(
+                today, left, right,
+            )))
+        }
+    }
+}
+
+fn interpolate_date_anchor(
+    date: SimpleDate,
+    left: (SimpleDate, f64),
+    right: (SimpleDate, f64),
+) -> f64 {
+    let span_days = days_between(left.0, right.0).max(1) as f64;
+    let elapsed_days = days_between(left.0, date) as f64;
+    left.1 + (right.1 - left.1) * (elapsed_days / span_days)
+}
+
+fn clamp_today_marker(left: f64) -> f64 {
+    left.clamp(TIMELINE_MARKER_MIN_LEFT, TIMELINE_MARKER_MAX_LEFT)
+}
+
+fn days_between(start: SimpleDate, end: SimpleDate) -> i64 {
+    unix_days_from_civil(end) - unix_days_from_civil(start)
+}
+
 fn today_utc_date() -> SimpleDate {
     let days = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| (duration.as_secs() / 86_400) as i64)
         .unwrap_or_default();
     civil_date_from_unix_days(days)
+}
+
+fn unix_days_from_civil(date: SimpleDate) -> i64 {
+    let mut year = date.year as i64;
+    let month = date.month as i64;
+    let day = date.day as i64;
+
+    year -= if month <= 2 { 1 } else { 0 };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let month_for_march = month + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * month_for_march + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 fn civil_date_from_unix_days(days: i64) -> SimpleDate {
@@ -1543,8 +1607,8 @@ fn render_release_card(card: &TimelineCard, asset_base: &str, frontend_origin: &
           <div class="event-copy">
             <div class="event-meta"><span class="event-symbol">{icon}</span><span class="event-label">{label}</span></div>
             <h2 class="event-title">{title}</h2>
-            {details}
             <p class="event-date">{date}</p>
+            {details}
             {participants}
           </div>
         </article>"#,
@@ -1646,5 +1710,62 @@ mod tests {
                 "Good - Summer - Cloudy".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn today_marker_interpolates_between_dated_anchors() {
+        let left = resolve_today_marker_left(
+            SimpleDate {
+                year: 2026,
+                month: 6,
+                day: 15,
+            },
+            &[
+                (
+                    SimpleDate {
+                        year: 2026,
+                        month: 6,
+                        day: 11,
+                    },
+                    382.0,
+                ),
+                (
+                    SimpleDate {
+                        year: 2026,
+                        month: 6,
+                        day: 18,
+                    },
+                    797.0,
+                ),
+            ],
+        )
+        .unwrap();
+
+        assert!((left - 619.14).abs() < 0.1, "{left}");
+    }
+
+    #[test]
+    fn champions_meeting_details_render_below_date() {
+        let html = render_release_card(
+            &TimelineCard {
+                marker: "T".to_string(),
+                kind: "champions".to_string(),
+                label: "Champions Meeting".to_string(),
+                title: "Cancer Cup".to_string(),
+                date: "Jun 21 - Jun 28, 2026".to_string(),
+                details: vec![
+                    "Hanshin - Turf".to_string(),
+                    "2200m - Medium - Clockwise".to_string(),
+                ],
+                image_path: String::new(),
+                participants: Vec::new(),
+            },
+            "https://uma.moe/assets",
+            "https://beta.uma.moe",
+        );
+
+        let date_index = html.find("Jun 21 - Jun 28, 2026").unwrap();
+        let details_index = html.find("Hanshin - Turf").unwrap();
+        assert!(date_index < details_index);
     }
 }

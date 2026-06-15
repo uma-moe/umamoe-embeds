@@ -4342,12 +4342,24 @@ mod tests {
                     value: "5.9B".to_string(),
                 },
                 EmbedMetric {
+                    label: "Today Gain".to_string(),
+                    value: "+118.1M".to_string(),
+                },
+                EmbedMetric {
+                    label: "Member Week Gain".to_string(),
+                    value: "+232.7M".to_string(),
+                },
+                EmbedMetric {
                     label: "Club Rank".to_string(),
                     value: "SS".to_string(),
                 },
                 EmbedMetric {
                     label: "Club Rank Id".to_string(),
                     value: "11".to_string(),
+                },
+                EmbedMetric {
+                    label: "Lower Cutoff Rank".to_string(),
+                    value: "#100".to_string(),
                 },
                 EmbedMetric {
                     label: "Buffer".to_string(),
@@ -4379,9 +4391,78 @@ mod tests {
 
         assert!(html.contains(r#"<span class="label">Last Month</span><strong>5.9B</strong>"#));
         assert!(!html.contains(r#"<span class="label">Live Points</span><strong>6.3B</strong>"#));
-        assert!(html.contains(r#"<span class="tier-gap-delta up">+25.0M</span>"#));
-        assert!(html.contains(r#"<span class="tier-gap-delta down">-4.0M</span>"#));
+        assert!(!html.contains(r#"<div class="progress-rank-row">"#));
+        assert!(html.contains(r#"<span class="tile-gain"><span>Day</span><b>+118.1M</b></span>"#));
+        assert!(html.contains(r#"<span class="tile-gain"><span>7d</span><b>+232.7M</b></span>"#));
+        assert!(html.contains(r#"<div class="cutoff-rail buffer-only">"#));
+        assert!(html.contains(r#"<span class="cutoff-delta up">+25.0M</span>"#));
+        assert!(html.contains("Rank #100"));
+        assert!(html.contains(r#"<span class="cutoff-node active">"#));
+        assert!(!html.contains("progress-value-rank"));
+        assert!(html.contains(r#"<strong class="cutoff-value muted">-</strong>"#));
         assert!(html.contains("utx_ico_circle_rank_10.webp"));
+    }
+
+    #[test]
+    fn club_detail_renders_two_sided_cutoff_rank_labels() {
+        let mut meta = overview_meta("Club", "https://uma.moe/circles/123");
+        meta.metrics = vec![
+            EmbedMetric {
+                label: "Rank".to_string(),
+                value: "#35".to_string(),
+            },
+            EmbedMetric {
+                label: "Points".to_string(),
+                value: "1.4B".to_string(),
+            },
+            EmbedMetric {
+                label: "Club Rank".to_string(),
+                value: "S".to_string(),
+            },
+            EmbedMetric {
+                label: "Club Rank Id".to_string(),
+                value: "9".to_string(),
+            },
+            EmbedMetric {
+                label: "Lower Cutoff Rank".to_string(),
+                value: "#100".to_string(),
+            },
+            EmbedMetric {
+                label: "Upper Cutoff Rank".to_string(),
+                value: "#30".to_string(),
+            },
+            EmbedMetric {
+                label: "Buffer".to_string(),
+                value: "406.5M".to_string(),
+            },
+            EmbedMetric {
+                label: "Buffer Delta".to_string(),
+                value: "+34.5M".to_string(),
+            },
+            EmbedMetric {
+                label: "Needed".to_string(),
+                value: "101.1M".to_string(),
+            },
+            EmbedMetric {
+                label: "Needed Delta".to_string(),
+                value: "-15.9M".to_string(),
+            },
+            EmbedMetric {
+                label: "Asset Base".to_string(),
+                value: "https://uma.moe/assets".to_string(),
+            },
+        ];
+
+        let html = render_card_html(&meta);
+
+        assert!(html.contains(r#"<div class="cutoff-rail both">"#));
+        assert!(html.contains("Rank #100"));
+        assert!(html.contains("Rank #30"));
+        assert!(html.contains("Rank #35"));
+        assert!(html.contains(r#"<span class="cutoff-node active">"#));
+        assert!(!html.contains("progress-value-rank"));
+        assert!(html.contains(r#"<span class="cutoff-delta up">+34.5M</span>"#));
+        assert!(html.contains(r#"<span class="cutoff-delta down">-15.9M</span>"#));
     }
 
     #[test]

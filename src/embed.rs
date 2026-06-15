@@ -661,6 +661,38 @@ struct CircleDetailsResponse {
     members: Vec<CircleMemberMonthlyData>,
     #[serde(default)]
     club_rank: Option<i64>,
+    #[serde(
+        default,
+        alias = "minRank",
+        alias = "minimum_rank",
+        alias = "minimumRank",
+        alias = "tier_min_rank",
+        alias = "tierMinRank",
+        alias = "cutoff_min_rank",
+        alias = "cutoffMinRank",
+        alias = "rank_min",
+        alias = "rankMin",
+        alias = "upper_cutoff_rank",
+        alias = "upperCutoffRank",
+        deserialize_with = "deserialize_optional_i64"
+    )]
+    min_rank: Option<i64>,
+    #[serde(
+        default,
+        alias = "maxRank",
+        alias = "maximum_rank",
+        alias = "maximumRank",
+        alias = "tier_max_rank",
+        alias = "tierMaxRank",
+        alias = "cutoff_max_rank",
+        alias = "cutoffMaxRank",
+        alias = "rank_max",
+        alias = "rankMax",
+        alias = "lower_cutoff_rank",
+        alias = "lowerCutoffRank",
+        deserialize_with = "deserialize_optional_i64"
+    )]
+    max_rank: Option<i64>,
     #[serde(default)]
     fans_to_next_tier: Option<i64>,
     #[serde(default)]
@@ -709,6 +741,38 @@ struct CircleDetails {
     live_points: Option<i64>,
     #[serde(default)]
     club_rank: Option<i64>,
+    #[serde(
+        default,
+        alias = "minRank",
+        alias = "minimum_rank",
+        alias = "minimumRank",
+        alias = "tier_min_rank",
+        alias = "tierMinRank",
+        alias = "cutoff_min_rank",
+        alias = "cutoffMinRank",
+        alias = "rank_min",
+        alias = "rankMin",
+        alias = "upper_cutoff_rank",
+        alias = "upperCutoffRank",
+        deserialize_with = "deserialize_optional_i64"
+    )]
+    min_rank: Option<i64>,
+    #[serde(
+        default,
+        alias = "maxRank",
+        alias = "maximum_rank",
+        alias = "maximumRank",
+        alias = "tier_max_rank",
+        alias = "tierMaxRank",
+        alias = "cutoff_max_rank",
+        alias = "cutoffMaxRank",
+        alias = "rank_max",
+        alias = "rankMax",
+        alias = "lower_cutoff_rank",
+        alias = "lowerCutoffRank",
+        deserialize_with = "deserialize_optional_i64"
+    )]
+    max_rank: Option<i64>,
     #[serde(default)]
     fans_to_next_tier: Option<i64>,
     #[serde(default)]
@@ -2516,19 +2580,19 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
     if let Some(points) = displayed_points {
         metrics.push(EmbedMetric {
             label: "Points".to_string(),
-            value: compact_number(points),
+            value: format_number(points),
         });
     }
     if let Some(live_points) = circle.live_points {
         metrics.push(EmbedMetric {
             label: "Live Points".to_string(),
-            value: compact_number(live_points),
+            value: format_number(live_points),
         });
     }
     if let Some(yesterday_points) = circle.yesterday_points {
         metrics.push(EmbedMetric {
             label: "Yesterday Points".to_string(),
-            value: compact_number(yesterday_points),
+            value: format_number(yesterday_points),
         });
     }
     let today_points = circle.live_points.or(displayed_points);
@@ -2547,7 +2611,7 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
     if let Some(last_month_point) = circle.last_month_point {
         metrics.push(EmbedMetric {
             label: "Last Month Points".to_string(),
-            value: compact_number(last_month_point),
+            value: format_number(last_month_point),
         });
     }
     if let Some(last_month_rank) = circle.last_month_rank {
@@ -2590,10 +2654,22 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
             value: club_rank.to_string(),
         });
     }
+    if let Some(max_rank) = circle.max_rank {
+        metrics.push(EmbedMetric {
+            label: "Lower Cutoff Rank".to_string(),
+            value: format!("#{max_rank}"),
+        });
+    }
+    if let Some(min_rank) = circle.min_rank {
+        metrics.push(EmbedMetric {
+            label: "Upper Cutoff Rank".to_string(),
+            value: format!("#{min_rank}"),
+        });
+    }
     if let Some(needed) = circle.fans_to_next_tier {
         metrics.push(EmbedMetric {
             label: "Needed".to_string(),
-            value: compact_number(needed),
+            value: format_number(needed),
         });
     }
     if let (Some(current), Some(previous)) =
@@ -2601,13 +2677,13 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
     {
         metrics.push(EmbedMetric {
             label: "Needed Delta".to_string(),
-            value: signed_compact_number(current - previous),
+            value: signed_format_number(current - previous),
         });
     }
     if let Some(buffer) = circle.fans_to_lower_tier {
         metrics.push(EmbedMetric {
             label: "Buffer".to_string(),
-            value: compact_number(buffer),
+            value: format_number(buffer),
         });
     }
     if let (Some(current), Some(previous)) = (
@@ -2616,7 +2692,7 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
     ) {
         metrics.push(EmbedMetric {
             label: "Buffer Delta".to_string(),
-            value: signed_compact_number(current - previous),
+            value: signed_format_number(current - previous),
         });
     }
     if let Some(leader) = circle
@@ -5452,6 +5528,8 @@ fn circle_from_response(response: CircleDetailsResponse) -> CircleDetails {
     let mut circle = response.circle;
     circle.members = response.members;
     circle.club_rank = response.club_rank.or(circle.club_rank);
+    circle.min_rank = response.min_rank.or(circle.min_rank);
+    circle.max_rank = response.max_rank.or(circle.max_rank);
     circle.fans_to_next_tier = response.fans_to_next_tier.or(circle.fans_to_next_tier);
     circle.fans_to_lower_tier = response.fans_to_lower_tier.or(circle.fans_to_lower_tier);
     circle.yesterday_fans_to_next_tier = response
@@ -5491,11 +5569,47 @@ fn push_circle_member_gain_metrics(
     if let Ok(datasets) = serde_json::to_string(&chart.datasets) {
         metrics.push(metric("Member Gain Series", &datasets));
     }
+    if let Some((day_gain, week_gain)) = circle_member_gain_summary(&chart) {
+        metrics.push(metric("Member Day Gain", &signed_compact_number(day_gain)));
+        metrics.push(metric(
+            "Member Week Gain",
+            &signed_compact_number(week_gain),
+        ));
+    }
     metrics.push(metric(
         "Member Gain Count",
         &chart.datasets.len().to_string(),
     ));
     metrics.push(metric("Member Gain Period", &chart.period));
+}
+
+fn circle_member_gain_summary(chart: &CircleMemberGainChart) -> Option<(i64, i64)> {
+    let latest_index = chart.labels.len().checked_sub(1)?;
+    let latest = circle_member_gain_total_at(&chart.datasets, latest_index);
+    if latest <= 0 {
+        return None;
+    }
+
+    let day_start = latest_index.saturating_sub(1);
+    let week_start = latest_index.saturating_sub(7);
+    let day_gain = latest.saturating_sub(circle_member_gain_total_at(&chart.datasets, day_start));
+    let week_gain = latest.saturating_sub(circle_member_gain_total_at(&chart.datasets, week_start));
+
+    Some((day_gain, week_gain))
+}
+
+fn circle_member_gain_total_at(datasets: &[CircleMemberGainDataset], index: usize) -> i64 {
+    datasets
+        .iter()
+        .filter_map(|dataset| member_gain_value_at_or_before(&dataset.data, index))
+        .sum()
+}
+
+fn member_gain_value_at_or_before(values: &[Option<i64>], index: usize) -> Option<i64> {
+    let capped = index.min(values.len().saturating_sub(1));
+    (0..=capped)
+        .rev()
+        .find_map(|index| values.get(index).copied().flatten())
 }
 
 fn circle_member_gain_chart(members: &[CircleMemberMonthlyData]) -> Option<CircleMemberGainChart> {
@@ -6030,6 +6144,18 @@ fn push_circle_row_metrics(metrics: &mut Vec<EmbedMetric>, row: usize, circle: &
     metrics.push(metric(&format!("Club Rank {row}"), &club_rank));
     metrics.push(metric(&format!("Club Rank Id {row}"), &club_rank_id));
     metrics.push(metric(&format!("Points {row}"), &compact_number(points)));
+    if let Some(max_rank) = circle.max_rank {
+        metrics.push(metric(
+            &format!("Lower Cutoff Rank {row}"),
+            &format!("#{max_rank}"),
+        ));
+    }
+    if let Some(min_rank) = circle.min_rank {
+        metrics.push(metric(
+            &format!("Upper Cutoff Rank {row}"),
+            &format!("#{min_rank}"),
+        ));
+    }
     if let Some(lower_gap) = circle.fans_to_lower_tier {
         metrics.push(metric(
             &format!("Lower Gap {row}"),
@@ -7788,6 +7914,14 @@ fn signed_compact_number(value: i64) -> String {
     }
 }
 
+fn signed_format_number(value: i64) -> String {
+    if value > 0 {
+        format!("+{}", format_number(value))
+    } else {
+        format_number(value)
+    }
+}
+
 fn compact_float(value: f64) -> String {
     if value.is_finite() {
         compact_number(value.round() as i64)
@@ -8195,6 +8329,8 @@ mod tests {
                     live_points: Some(6_300_000_000),
                     last_month_point: Some(5_900_000_000),
                     club_rank: Some(11),
+                    min_rank: Some(1),
+                    max_rank: Some(100),
                     fans_to_lower_tier: Some(100_000_000),
                     yesterday_fans_to_lower_tier: Some(75_000_000),
                     fans_to_next_tier: Some(0),
@@ -8217,6 +8353,8 @@ mod tests {
         };
 
         assert_eq!(metric("Points 1"), Some("5.9B"));
+        assert_eq!(metric("Lower Cutoff Rank 1"), Some("#100"));
+        assert_eq!(metric("Upper Cutoff Rank 1"), Some("#1"));
         assert_eq!(metric("Lower Gap 1"), Some("100.0M"));
         assert_eq!(metric("Lower Gap Delta 1"), Some("+25.0M"));
         assert_eq!(metric("Upper Gap 1"), Some("0"));
