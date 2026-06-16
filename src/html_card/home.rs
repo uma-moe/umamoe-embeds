@@ -183,7 +183,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
         linear-gradient(145deg, rgba(100, 181, 246, 0.28), rgba(129, 199, 132, 0.18));
       color: #ffffff;
       font-size: 70px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
       box-shadow:
@@ -195,7 +195,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: #ffffff;
       font-size: 38px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       letter-spacing: 0;
       text-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
@@ -275,7 +275,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       min-width: 0;
       color: var(--text-primary);
       font-size: 19px;
-      font-weight: 800;
+      font-weight: 650;
       line-height: 1;
       white-space: nowrap;
     }}
@@ -296,7 +296,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: linear-gradient(45deg, #2196f3, #81c784);
       color: #fff;
       font-size: 9px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -380,7 +380,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 21px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -390,7 +390,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .stat-label {{
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 800;
+      font-weight: 650;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -432,7 +432,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
 
     .home-card .embed-brand-url {{
       font-size: 72px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
     }}
   </style>

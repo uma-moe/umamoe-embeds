@@ -150,7 +150,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background-clip: text;
       color: transparent;
       font-size: 39px;
-      font-weight: 880;
+      font-weight: 760;
       letter-spacing: 0;
       line-height: 0.98;
     }}
@@ -159,7 +159,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-muted);
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -198,7 +198,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-transform: uppercase;
       text-overflow: ellipsis;
@@ -209,7 +209,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 16px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-align: right;
       text-overflow: ellipsis;
@@ -272,7 +272,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-primary);
       font-size: 17px;
-      font-weight: 870;
+      font-weight: 760;
       line-height: 1.05;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -282,7 +282,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       flex: 0 0 auto;
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -334,7 +334,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       min-width: 0;
       color: var(--text-secondary);
       font-size: 11px;
-      font-weight: 880;
+      font-weight: 760;
       line-height: 1;
     }}
 
@@ -356,7 +356,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .dist-row span:last-child {{
       color: var(--text-secondary);
       font-size: 10px;
-      font-weight: 920;
+      font-weight: 700;
       text-align: right;
       font-variant-numeric: tabular-nums;
     }}
@@ -418,7 +418,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .deck-rank {{
       color: var(--text-disabled);
       font-size: 9px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       text-align: right;
       font-variant-numeric: tabular-nums;
@@ -442,7 +442,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       border-radius: 0;
       background: transparent;
       color: var(--chip-text);
-      font-weight: 920;
+      font-weight: 700;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -476,7 +476,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .deck-chip b {{
       color: var(--chip-text);
       font-size: 8px;
-      font-weight: 930;
+      font-weight: 700;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }}
@@ -484,7 +484,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .deck-chip small {{
       color: var(--chip-text);
       font-size: 7px;
-      font-weight: 920;
+      font-weight: 700;
       line-height: 1;
       letter-spacing: 0;
     }}
@@ -507,7 +507,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .deck-value b {{
       color: var(--accent-warning);
       font-size: 11px;
-      font-weight: 930;
+      font-weight: 700;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }}
@@ -516,7 +516,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-muted);
       font-size: 7px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: ellipsis;
       text-transform: uppercase;
@@ -540,14 +540,14 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       min-height: 28px;
       color: var(--text-secondary);
       font-size: 11px;
-      font-weight: 840;
+      font-weight: 680;
       line-height: 1;
     }}
 
     .rank-row .rank {{
       color: var(--text-disabled);
       font-size: 10px;
-      font-weight: 950;
+      font-weight: 720;
       text-align: right;
     }}
 
@@ -594,7 +594,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .rank-thumb-fallback {{
       color: var(--text-secondary);
       font-size: 10px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
     }}
 
@@ -608,7 +608,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 11px;
-      font-weight: 880;
+      font-weight: 760;
       line-height: 1.05;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -618,7 +618,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: ellipsis;
       text-transform: uppercase;
@@ -630,7 +630,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       gap: 2px;
       color: var(--accent-warning);
       font-size: 11px;
-      font-weight: 920;
+      font-weight: 700;
       text-align: right;
       font-variant-numeric: tabular-nums;
     }}
@@ -638,7 +638,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .rank-row .value b {{
       color: var(--accent-warning);
       font-size: 11px;
-      font-weight: 930;
+      font-weight: 700;
       line-height: 1;
     }}
 
@@ -646,7 +646,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-muted);
       font-size: 7px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: ellipsis;
       text-transform: uppercase;

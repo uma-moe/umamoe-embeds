@@ -144,7 +144,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background-clip: text;
       color: transparent;
       font-size: 41px;
-      font-weight: 880;
+      font-weight: 760;
       letter-spacing: 0;
       line-height: 0.96;
       text-overflow: ellipsis;
@@ -158,7 +158,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       min-width: 0;
       color: var(--text-secondary);
       font-size: 12px;
-      font-weight: 840;
+      font-weight: 680;
       line-height: 0.95;
       transform: translateY(-4px);
       text-transform: uppercase;
@@ -175,7 +175,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(255, 183, 77, 0.1);
       color: var(--accent-warning);
       font-size: 10px;
-      font-weight: 920;
+      font-weight: 700;
       line-height: 1;
       flex-shrink: 0;
       text-transform: uppercase;
@@ -232,14 +232,14 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
 
     .tier-name {{
       font-size: 28px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 0.95;
     }}
 
     .tier-range {{
       color: rgba(255, 255, 255, 0.82);
       font-size: 10px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1.15;
       text-transform: uppercase;
     }}
@@ -285,7 +285,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .art-fallback {{
       color: rgba(255, 255, 255, 0.72);
       font-size: 14px;
-      font-weight: 950;
+      font-weight: 720;
       letter-spacing: 0;
       line-height: 1;
     }}
@@ -309,7 +309,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-muted);
       font-size: 9px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-overflow: ellipsis;
       text-transform: uppercase;
@@ -320,7 +320,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 12px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1.05;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -334,14 +334,14 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       min-width: 0;
       color: var(--text-secondary);
       font-size: 10px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
     }}
 
     .card-score b {{
       color: var(--row-color);
       font-size: 13px;
-      font-weight: 900;
+      font-weight: 700;
       font-variant-numeric: tabular-nums;
     }}
 {brand_css}

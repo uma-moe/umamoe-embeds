@@ -122,7 +122,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background-clip: text;
       color: transparent;
       font-size: 38px;
-      font-weight: 880;
+      font-weight: 760;
       letter-spacing: 0;
       line-height: 0.98;
     }}
@@ -131,7 +131,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-muted);
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -241,7 +241,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: color-mix(in srgb, var(--tile-color) 18%, transparent);
       border: 1px solid color-mix(in srgb, var(--tile-color) 46%, transparent);
       font-size: 10px;
-      font-weight: 920;
+      font-weight: 700;
       line-height: 1;
       text-transform: uppercase;
       white-space: nowrap;
@@ -257,7 +257,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-primary);
       font-size: 25px;
-      font-weight: 880;
+      font-weight: 760;
       line-height: 1.05;
       display: -webkit-box;
       overflow: hidden;
@@ -294,7 +294,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(255, 255, 255, 0.055);
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-transform: uppercase;
       white-space: nowrap;
@@ -374,7 +374,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       color: var(--text-secondary);
       background: rgba(255, 255, 255, 0.06);
       font-size: 10px;
-      font-weight: 920;
+      font-weight: 700;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -442,7 +442,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       width: 58px;
       color: var(--text-muted);
       font-size: 9px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -519,7 +519,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       border: 1px solid color-mix(in srgb, var(--node-color) 46%, transparent);
       font-size: 9px;
       font-style: normal;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       font-variant-numeric: tabular-nums;
       text-transform: none;

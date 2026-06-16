@@ -218,7 +218,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background-clip: text;
       color: transparent;
       font-size: 39px;
-      font-weight: 880;
+      font-weight: 760;
       letter-spacing: 0;
       line-height: 0.98;
       text-overflow: ellipsis;
@@ -229,7 +229,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-muted);
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -375,7 +375,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(10, 10, 10, 0.88);
       color: color-mix(in srgb, var(--node-color), white 18%);
       font-size: 9px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -419,7 +419,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(12, 12, 12, 0.9);
       color: var(--accent-pink);
       font-size: 10px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       box-shadow: 0 8px 18px rgba(0, 0, 0, 0.34);
     }}
@@ -460,14 +460,14 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(0, 0, 0, 0.3);
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 900;
+      font-weight: 700;
       text-transform: uppercase;
     }}
 
     .summary-cell b {{
       color: var(--text-primary);
       font-size: 14px;
-      font-weight: 950;
+      font-weight: 720;
       font-variant-numeric: tabular-nums;
       text-transform: none;
     }}
@@ -491,14 +491,14 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-primary);
       font-size: 18px;
-      font-weight: 870;
+      font-weight: 760;
       line-height: 1.05;
     }}
 
     .spark-head span {{
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 900;
+      font-weight: 700;
       text-transform: uppercase;
       white-space: nowrap;
     }}
@@ -524,7 +524,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       padding: 0 7px 0 9px;
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -557,7 +557,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 9px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -569,7 +569,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       justify-content: flex-end;
       color: var(--row-color);
       font-size: 9px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
@@ -586,7 +586,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .odds-rate b {{
       color: var(--text-primary);
       font-size: 9px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       font-variant-numeric: tabular-nums;
       min-width: 32px;

@@ -391,7 +391,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 22px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1.05;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -420,7 +420,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(129, 199, 132, 0.08);
       color: var(--accent-secondary);
       font-size: 11px;
-      font-weight: 900;
+      font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }}
@@ -445,7 +445,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-muted);
       font-size: 9px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-transform: uppercase;
       text-overflow: ellipsis;
@@ -457,7 +457,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 15px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1.05;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -509,7 +509,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(129, 199, 132, 0.09);
       color: var(--accent-secondary);
       font-size: 8px;
-      font-weight: 880;
+      font-weight: 760;
       letter-spacing: 0.05em;
       line-height: 1;
       text-transform: uppercase;
@@ -549,7 +549,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-primary);
       font-size: 22px;
-      font-weight: 820;
+      font-weight: 680;
       line-height: 1;
     }}
 
@@ -601,7 +601,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       color: var(--text-disabled);
       font-size: 8px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1.2;
       text-align: left;
       text-transform: uppercase;
@@ -718,7 +718,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       border-radius: 5px;
       background: rgba(255, 255, 255, 0.025);
       font-size: 8px;
-      font-weight: 860;
+      font-weight: 760;
       line-height: 1.15;
       white-space: nowrap;
     }}
@@ -727,7 +727,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       display: inline-flex;
       align-items: center;
       height: 100%;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       opacity: 0.92;
     }}
@@ -738,7 +738,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       height: 100%;
       color: var(--text-primary);
       font-size: 9px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
     }}
 
@@ -825,7 +825,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       max-width: 100%;
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 820;
+      font-weight: 680;
       line-height: 1.16;
       text-transform: uppercase;
       text-overflow: ellipsis;
@@ -989,7 +989,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .borrow-card .portrait-label {{
       color: var(--text-primary);
       font-size: 10px;
-      font-weight: 820;
+      font-weight: 680;
       line-height: 1;
     }}
 
@@ -1029,7 +1029,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(100, 181, 246, 0.12);
       color: var(--accent-primary);
       font-size: 7px;
-      font-weight: 820;
+      font-weight: 680;
       line-height: 1.1;
       white-space: nowrap;
     }}
@@ -1050,7 +1050,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       display: block;
       color: var(--text-disabled);
       font-size: 8px;
-      font-weight: 820;
+      font-weight: 680;
       line-height: 1.12;
       text-transform: uppercase;
     }}
@@ -1082,7 +1082,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 10px;
       text-transform: uppercase;
       text-overflow: ellipsis;
@@ -1310,7 +1310,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1.2;
       text-transform: uppercase;
       text-overflow: ellipsis;
@@ -1349,7 +1349,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .stadium-primary b {{
       overflow: hidden;
       color: var(--text-primary);
-      font-weight: 820;
+      font-weight: 680;
       line-height: 1.12;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -1435,7 +1435,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: #fff;
       font-size: 10px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
       filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.5));
@@ -1514,7 +1514,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       height: 46px;
       color: var(--accent-primary);
       font-size: 14px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.34));
     }}
@@ -1540,7 +1540,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .circle-stat span {{
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -1612,7 +1612,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .chart-caption span {{
       color: var(--text-disabled);
       font-size: 10px;
-      font-weight: 900;
+      font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }}
@@ -1620,7 +1620,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .chart-caption b {{
       color: var(--text-primary);
       font-size: 25px;
-      font-weight: 920;
+      font-weight: 700;
       letter-spacing: 0;
       font-variant-numeric: tabular-nums;
     }}
@@ -1646,7 +1646,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .rolling-stat span {{
       color: var(--text-muted);
       font-size: 9px;
-      font-weight: 900;
+      font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }}
@@ -1655,7 +1655,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 15px;
-      font-weight: 900;
+      font-weight: 700;
       letter-spacing: 0;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -1717,7 +1717,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(255, 183, 77, 0.12);
       color: var(--accent-warning);
       font-size: 8px;
-      font-weight: 850;
+      font-weight: 680;
     }}
 
     .feature-tile {{
@@ -1748,7 +1748,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-disabled);
       font-size: 9px;
-      font-weight: 900;
+      font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       text-overflow: ellipsis;
@@ -1759,7 +1759,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 13px;
-      font-weight: 880;
+      font-weight: 760;
       text-overflow: ellipsis;
       white-space: nowrap;
     }}
@@ -1767,7 +1767,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .feature-value {{
       color: var(--text-primary);
       font-size: 13px;
-      font-weight: 900;
+      font-weight: 700;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }}

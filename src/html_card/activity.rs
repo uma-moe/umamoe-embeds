@@ -136,7 +136,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--accent-warning);
       font-size: 33px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1.02;
       letter-spacing: 0;
     }}
@@ -170,7 +170,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin-bottom: 5px;
       color: var(--text-disabled);
       font-size: 10px;
-      font-weight: 850;
+      font-weight: 680;
       text-transform: uppercase;
     }}
 
@@ -179,7 +179,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 18px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -205,7 +205,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       border-radius: 50%;
       color: #90caf9;
       font-size: 18px;
-      font-weight: 900;
+      font-weight: 700;
     }}
 
     .notice-copy {{
@@ -217,7 +217,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin-bottom: 2px;
       color: var(--text-primary);
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 680;
     }}
 
     .notice-copy span {{
@@ -242,7 +242,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(255, 204, 128, 0.07);
       color: var(--accent-warning);
       font-size: 12px;
-      font-weight: 850;
+      font-weight: 680;
       white-space: nowrap;
     }}
 
@@ -283,7 +283,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .activity-empty strong {{
       color: var(--text-primary);
       font-size: 18px;
-      font-weight: 900;
+      font-weight: 700;
     }}
 
     .activity-empty span {{
@@ -330,7 +330,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .row-rank {{
       color: var(--text-secondary);
       font-size: 17px;
-      font-weight: 900;
+      font-weight: 700;
       text-align: center;
       white-space: nowrap;
     }}
@@ -352,7 +352,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--accent-primary);
       font-size: 14px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -447,7 +447,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       max-width: 100%;
       color: var(--text-primary);
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -456,7 +456,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .metric span {{
       color: var(--text-disabled);
       font-size: 8px;
-      font-weight: 800;
+      font-weight: 650;
       text-transform: uppercase;
       white-space: nowrap;
     }}
@@ -476,7 +476,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       max-width: 100%;
       color: var(--text-muted);
       font-size: 9px;
-      font-weight: 800;
+      font-weight: 650;
       line-height: 1.1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -493,7 +493,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .score-value {{
       font-size: 25px;
       color: var(--score-color);
-      font-weight: 900;
+      font-weight: 700;
       line-height: 0.95;
       white-space: nowrap;
     }}
@@ -501,7 +501,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .score-max {{
       color: var(--text-disabled);
       font-size: 9px;
-      font-weight: 800;
+      font-weight: 650;
     }}
 
     .activity-footer {{
@@ -524,7 +524,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(255, 255, 255, 0.026);
       color: var(--text-secondary);
       font-size: 12px;
-      font-weight: 800;
+      font-weight: 650;
     }}
 
     .page-dot {{
@@ -700,7 +700,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
       background: var(--badge-bg);
       color: var(--badge-color);
       font-size: 12px;
-      font-weight: 850;
+      font-weight: 680;
       white-space: nowrap;
     }}
 
@@ -721,7 +721,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 38px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -763,7 +763,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
     .metric-tile .label {{
       color: var(--text-disabled);
       font-size: 10px;
-      font-weight: 850;
+      font-weight: 680;
       text-transform: uppercase;
       white-space: nowrap;
     }}
@@ -772,7 +772,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 18px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -818,7 +818,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
       flex-shrink: 0;
       color: var(--text-primary);
       font-size: 15px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       white-space: nowrap;
     }}
@@ -826,7 +826,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
     .analysis-header > span {{
       color: var(--text-muted);
       font-size: 11px;
-      font-weight: 800;
+      font-weight: 650;
     }}
 
     .chart-key,
@@ -837,7 +837,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
       min-width: 0;
       color: var(--text-muted);
       font-size: 10px;
-      font-weight: 850;
+      font-weight: 680;
       text-transform: uppercase;
       white-space: nowrap;
     }}
@@ -885,7 +885,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
     .day-label {{
       color: var(--text-disabled);
       font-size: 8px;
-      font-weight: 800;
+      font-weight: 650;
       line-height: 1;
     }}
 
@@ -981,7 +981,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
     .daily-card .peak-label {{
       color: var(--accent-warning);
       font-size: 10px;
-      font-weight: 900;
+      font-weight: 700;
       white-space: nowrap;
       border-color: rgba(255, 204, 128, 0.2);
       background: rgba(255, 204, 128, 0.055);
@@ -1011,7 +1011,7 @@ fn render_detail_card_html(meta: &EmbedMetadata) -> String {
       min-height: 84px;
       color: var(--text-muted);
       font-size: 12px;
-      font-weight: 800;
+      font-weight: 650;
     }}
 
     .runtime-chart {{

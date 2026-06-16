@@ -120,7 +120,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background-clip: text;
       color: transparent;
       font-size: 38px;
-      font-weight: 850;
+      font-weight: 760;
       line-height: 0.98;
       letter-spacing: 0;
       white-space: nowrap;
@@ -130,7 +130,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-muted);
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -156,7 +156,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       padding: 0 14px;
       color: var(--text-disabled);
       font-size: 10px;
-      font-weight: 850;
+      font-weight: 650;
       text-transform: uppercase;
     }}
 
@@ -214,7 +214,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .lb-rank {{
       color: var(--rank-color);
       font-size: 20px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       text-align: center;
       font-variant-numeric: tabular-nums;
@@ -225,7 +225,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--accent-primary);
       font-size: 16px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -239,7 +239,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: rgba(100, 181, 246, 0.78);
       font-size: 12px;
-      font-weight: 850;
+      font-weight: 650;
       line-height: 1;
       white-space: nowrap;
     }}
@@ -252,51 +252,21 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     }}
 
     .circle-emblem {{
-      position: relative;
       display: grid;
       place-items: center;
-      width: 28px;
-      height: 28px;
-      flex: 0 0 28px;
-      border: 1px solid rgba(100, 181, 246, 0.32);
-      border-radius: 50%;
-      background:
-        radial-gradient(circle at 36% 28%, rgba(129, 199, 132, 0.18), transparent 52%),
-        rgba(100, 181, 246, 0.11);
-      color: var(--accent-primary);
-      font-size: 12px;
-      font-weight: 950;
+      width: 25px;
+      height: 25px;
+      flex: 0 0 25px;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
       line-height: 1;
-      overflow: hidden;
-    }}
-
-    .circle-emblem.fallback::before {{
-      content: "";
-      position: absolute;
-      width: 10px;
-      height: 10px;
-      border: 2px solid currentColor;
-      border-top-color: transparent;
-      border-radius: 50%;
-      transform: rotate(-28deg);
-      opacity: 0.95;
-    }}
-
-    .circle-emblem.fallback::after {{
-      content: "";
-      position: absolute;
-      right: 7px;
-      bottom: 7px;
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: currentColor;
-      opacity: 0.95;
+      overflow: visible;
     }}
 
     .circle-emblem img {{
-      width: 28px;
-      height: 28px;
+      width: 25px;
+      height: 25px;
       object-fit: contain;
     }}
 
@@ -317,7 +287,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       max-width: 100%;
       color: var(--text-primary);
       font-size: 14px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -404,7 +374,7 @@ fn render_rows(rows: &[RankingRow], asset_base: &str) -> String {
 
 fn render_club_icon(rank_id: Option<&str>, asset_base: &str) -> String {
     let Some(rank_id) = rank_id.and_then(|rank_id| rank_id.trim().parse::<i64>().ok()) else {
-        return r#"<span class="circle-emblem fallback"></span>"#.to_string();
+        return String::new();
     };
     let rank_id = rank_id.clamp(1, 11);
     let image = asset_url(
@@ -412,7 +382,7 @@ fn render_club_icon(rank_id: Option<&str>, asset_base: &str) -> String {
         &format!("/images/icon/circle_rank/utx_ico_circle_rank_{rank_id:02}.webp"),
     );
     format!(
-        r#"<span class="circle-emblem"><img src="{image}" alt="" onerror="this.parentElement.className='circle-emblem fallback';this.remove()"></span>"#,
+        r#"<span class="circle-emblem"><img src="{image}" alt="" onerror="this.parentElement.remove()"></span>"#,
         image = html_escape(&image),
     )
 }

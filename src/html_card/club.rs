@@ -198,7 +198,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: transparent;
       color: #90caf9;
       font-size: 18px;
-      font-weight: 900;
+      font-weight: 700;
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
     }}
 
@@ -221,7 +221,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 26px;
-      font-weight: 850;
+      font-weight: 760;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -244,7 +244,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: var(--badge-bg);
       color: var(--badge-color);
       font-size: 12px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       white-space: nowrap;
     }}
@@ -325,7 +325,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .live-label {{
       color: #ef5350;
       font-size: 11px;
-      font-weight: 900;
+      font-weight: 680;
       text-transform: uppercase;
     }}
 
@@ -381,7 +381,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-primary);
       font-size: 16px;
-      font-weight: 800;
+      font-weight: 680;
       line-height: 1;
     }}
 
@@ -413,7 +413,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
 
     .profile-leader .value {{
       font-size: 15px;
-      font-weight: 900;
+      font-weight: 680;
     }}
 
     .profile-leader .label {{
@@ -440,7 +440,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin-bottom: 5px;
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 850;
+      font-weight: 620;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -511,7 +511,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .highlight {{
       color: var(--accent-primary);
       font-size: 16px;
-      font-weight: 900;
+      font-weight: 700;
     }}
 
     .cutoff-rail {{
@@ -900,7 +900,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .legend-item b {{
       margin-left: auto;
       font-size: 8px;
-      font-weight: 900;
+      font-weight: 650;
       white-space: nowrap;
     }}
 
@@ -935,7 +935,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: var(--surface-2);
       color: var(--text-secondary);
       font-size: 12px;
-      font-weight: 800;
+      font-weight: 650;
     }}
 
     .prior-club-badge {{
@@ -992,7 +992,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .member-rank {{
       color: var(--member-rank);
       font-size: 18px;
-      font-weight: 900;
+      font-weight: 720;
     }}
 
     .name-block {{
@@ -1006,7 +1006,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 14px;
-      font-weight: 850;
+      font-weight: 680;
       text-overflow: ellipsis;
       white-space: nowrap;
     }}
@@ -1026,7 +1026,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: rgba(255, 167, 38, 0.13);
       color: #ffa726;
       font-size: 10px;
-      font-weight: 900;
+      font-weight: 680;
       text-transform: uppercase;
     }}
 

@@ -98,7 +98,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background-clip: text;
       color: transparent;
       font-size: 38px;
-      font-weight: 850;
+      font-weight: 760;
       line-height: 0.98;
       letter-spacing: 0;
       white-space: nowrap;
@@ -108,7 +108,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       margin: 0;
       color: var(--text-muted);
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-transform: uppercase;
     }}
@@ -134,7 +134,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       padding: 0 14px;
       color: var(--text-disabled);
       font-size: 10px;
-      font-weight: 850;
+      font-weight: 650;
       text-transform: uppercase;
     }}
 
@@ -214,7 +214,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       width: 72px;
       color: var(--rank-color);
       font-size: 18px;
-      font-weight: 950;
+      font-weight: 720;
       line-height: 1;
       text-align: center;
       font-variant-numeric: tabular-nums;
@@ -227,7 +227,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       justify-content: center;
       color: var(--text-muted);
       font-size: 7px;
-      font-weight: 800;
+      font-weight: 620;
       line-height: 1;
       white-space: nowrap;
     }}
@@ -243,7 +243,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       transform: translateY(-50%);
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 950;
+      font-weight: 700;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }}
@@ -267,7 +267,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: visible;
       color: var(--accent-primary);
       font-size: 12px;
-      font-weight: 950;
+      font-weight: 700;
     }}
 
     .rank-emblem img {{
@@ -289,7 +289,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--accent-primary);
       font-size: 15px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -302,7 +302,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       min-width: 0;
       color: var(--text-muted);
       font-size: 9px;
-      font-weight: 800;
+      font-weight: 620;
       line-height: 1;
       white-space: nowrap;
     }}
@@ -323,7 +323,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       background: var(--tag-bg);
       color: var(--tag-color);
       font-size: 9px;
-      font-weight: 850;
+      font-weight: 680;
       white-space: nowrap;
     }}
 
@@ -372,7 +372,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       overflow: hidden;
       color: var(--text-primary);
       font-size: 14px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -394,7 +394,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .gain-label {{
       color: var(--text-muted);
       font-size: 9px;
-      font-weight: 800;
+      font-weight: 620;
       line-height: 1;
     }}
 
@@ -402,7 +402,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       color: var(--text-secondary);
       overflow: visible;
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 680;
       line-height: 1;
       text-overflow: clip;
       white-space: nowrap;
@@ -431,7 +431,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .gain-sep {{
       color: var(--text-disabled);
       font-size: 12px;
-      font-weight: 800;
+      font-weight: 620;
       line-height: 1;
     }}
 
@@ -462,7 +462,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       height: 22px;
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 950;
+      font-weight: 720;
     }}
 
     .gap-rank img {{
@@ -483,7 +483,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       color: var(--text-secondary);
       overflow: hidden;
       font-size: 12px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -493,7 +493,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .gap-delta {{
       color: var(--text-muted);
       font-size: 8px;
-      font-weight: 900;
+      font-weight: 650;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }}
@@ -509,7 +509,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .metric-label {{
       color: var(--text-disabled);
       font-size: 8px;
-      font-weight: 850;
+      font-weight: 620;
       text-transform: uppercase;
       white-space: nowrap;
     }}
