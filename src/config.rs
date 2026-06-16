@@ -1,4 +1,9 @@
-use std::{env, net::SocketAddr, time::Duration};
+use std::{
+    env,
+    net::SocketAddr,
+    process,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result};
 
@@ -41,6 +46,7 @@ pub struct Config {
     pub resources_api_token: Option<String>,
     pub bot_user_agent_tokens: Vec<String>,
     pub debug_query_key: String,
+    pub image_cache_bust: String,
     pub image_cache_max_age: Duration,
     pub image_cache_stale_while_revalidate: Duration,
     pub image_cache_max_entries: usize,
@@ -101,6 +107,11 @@ impl Config {
 
         let debug_query_key =
             env::var("UMAMOE_EMBEDS_DEBUG_QUERY_KEY").unwrap_or_else(|_| "__embed".to_string());
+        let image_cache_bust = env::var("UMAMOE_EMBEDS_IMAGE_CACHE_BUST")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(default_image_cache_bust);
 
         let image_cache_max_age =
             duration_from_env("UMAMOE_EMBEDS_IMAGE_CACHE_MAX_AGE_SECONDS", 300);
@@ -122,12 +133,21 @@ impl Config {
             resources_api_token,
             bot_user_agent_tokens,
             debug_query_key,
+            image_cache_bust,
             image_cache_max_age,
             image_cache_stale_while_revalidate,
             image_cache_max_entries,
             render_max_concurrency,
         })
     }
+}
+
+fn default_image_cache_bust() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!("{millis}-{}", process::id())
 }
 
 fn normalize_base_url(value: String) -> String {

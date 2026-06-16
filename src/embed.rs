@@ -7552,7 +7552,7 @@ fn absolute_url_with_query(config: &Config, path: &str, query: Option<&str>) -> 
 fn image_url_with_query(config: &Config, kind: &str, id: &str, query: Option<&str>) -> String {
     let base = image_url(config, kind, id);
     match query.filter(|query| !query.trim().is_empty()) {
-        Some(query) => format!("{base}?{query}"),
+        Some(query) => format!("{base}&{query}"),
         None => base,
     }
 }
@@ -8034,10 +8034,11 @@ fn absolute_url(config: &Config, path: &str) -> String {
 
 fn image_url(config: &Config, kind: &str, id: &str) -> String {
     format!(
-        "{}/__embeds/images/{}/{}.png",
+        "{}/__embeds/images/{}/{}.png?__v={}",
         config.public_base_url,
         kind,
-        urlencoding::encode(id)
+        urlencoding::encode(id),
+        urlencoding::encode(&config.image_cache_bust)
     )
 }
 
@@ -8305,6 +8306,7 @@ mod tests {
             resources_api_token: None,
             bot_user_agent_tokens: vec![],
             debug_query_key: "__embed".to_string(),
+            image_cache_bust: "test".to_string(),
             image_cache_max_age: std::time::Duration::from_secs(300),
             image_cache_stale_while_revalidate: std::time::Duration::from_secs(86_400),
             image_cache_max_entries: 256,
@@ -8458,7 +8460,7 @@ mod tests {
         assert_eq!(meta.canonical_url, "https://uma.moe/tierlist?sfds=");
         assert_eq!(
             meta.image_url,
-            "https://uma.moe/__embeds/images/page/tierlist.png?sfds="
+            "https://uma.moe/__embeds/images/page/tierlist.png?__v=test&sfds="
         );
         assert_eq!(meta.kind_label, "Tierlist");
     }
@@ -9254,7 +9256,7 @@ mod tests {
         );
         assert_eq!(
             meta.image_url,
-            "https://uma.moe/__embeds/images/page/lineage-planner.png?tree=abc-def_123"
+            "https://uma.moe/__embeds/images/page/lineage-planner.png?__v=test&tree=abc-def_123"
         );
         assert_eq!(meta.title, "Shared Lineage Planner | uma.moe");
         assert!(meta

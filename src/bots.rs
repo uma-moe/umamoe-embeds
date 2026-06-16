@@ -52,6 +52,7 @@ mod tests {
             resources_api_token: None,
             bot_user_agent_tokens: vec!["Discordbot".to_string(), "Slackbot".to_string()],
             debug_query_key: "__embed".to_string(),
+            image_cache_bust: "test".to_string(),
             image_cache_max_age: std::time::Duration::from_secs(300),
             image_cache_stale_while_revalidate: std::time::Duration::from_secs(86_400),
             image_cache_max_entries: 256,
