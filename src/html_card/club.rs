@@ -51,10 +51,36 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     let buffer = metric_value(&meta.metrics, &["Buffer"]).unwrap_or_else(|| "Safe".to_string());
     let needed_delta = metric_value(&meta.metrics, &["Needed Delta"]);
     let buffer_delta = metric_value(&meta.metrics, &["Buffer Delta"]);
-    let day_gain = metric_value(&meta.metrics, &["Today Gain", "Member Day Gain"])
-        .unwrap_or_else(|| "--".to_string());
-    let week_gain = metric_value(&meta.metrics, &["Member Week Gain", "Week Gain", "7d Gain"])
-        .unwrap_or_else(|| "--".to_string());
+    let current_daily_avg = metric_value(
+        &meta.metrics,
+        &["Current Daily Avg", "Monthly Daily Avg", "Daily Avg"],
+    )
+    .unwrap_or_else(|| "--".to_string());
+    let current_weekly_avg = metric_value(
+        &meta.metrics,
+        &[
+            "Current Weekly Avg",
+            "Current 7d Avg",
+            "Weekly Avg",
+            "7d Avg",
+        ],
+    )
+    .unwrap_or_else(|| "--".to_string());
+    let last_month_daily_avg = metric_value(
+        &meta.metrics,
+        &["Last Month Daily Avg", "Previous Daily Avg"],
+    )
+    .unwrap_or_else(|| "--".to_string());
+    let last_month_weekly_avg = metric_value(
+        &meta.metrics,
+        &[
+            "Last Month Weekly Avg",
+            "Last Month 7d Avg",
+            "Previous 7d Avg",
+            "Previous Weekly Avg",
+        ],
+    )
+    .unwrap_or_else(|| "--".to_string());
     let club_rank_id = metric_value(&meta.metrics, &["Club Rank Id"])
         .and_then(|rank_id| rank_id.trim().parse::<i64>().ok());
     let lower_cutoff_rank = metric_value(&meta.metrics, &["Lower Cutoff Rank", "Max Rank"]);
@@ -713,7 +739,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       align-items: stretch;
       gap: 10px;
-      height: 74px;
+      height: 80px;
       margin: 0 10px 6px;
     }}
 
@@ -722,8 +748,8 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       display: grid;
       align-content: center;
       justify-items: center;
-      gap: 4px;
-      padding: 7px 12px;
+      gap: 5px;
+      padding: 6px 10px;
       border: 1px solid rgba(255, 255, 255, 0.052);
       border-radius: 8px;
       background: rgba(255, 255, 255, 0.024);
@@ -738,7 +764,7 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       min-width: 0;
       overflow: visible;
       color: var(--accent-primary);
-      font-size: 27px;
+      font-size: 25px;
       font-weight: 600;
       line-height: 1;
       white-space: nowrap;
@@ -756,26 +782,37 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
       color: var(--accent-warning);
     }}
 
-    .tile-gain {{
+    .tile-averages {{
+      min-width: 0;
+      width: min(100%, 270px);
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+    }}
+
+    .tile-average {{
       min-width: 0;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      height: 12px;
+      gap: 4px;
+      height: 14px;
       color: var(--text-muted);
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       line-height: 1;
       text-transform: uppercase;
     }}
 
-    .tile-gain > span {{
+    .tile-average > span {{
       display: block;
       line-height: 1;
+      white-space: nowrap;
     }}
 
-    .tile-gain b {{
+    .tile-average b {{
       display: block;
       color: var(--accent-secondary);
       font-size: 10px;
@@ -1065,8 +1102,8 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
         <article class="details-card chart-card">
           <header class="card-header"><h2>Club Progression</h2>{progress_summary}</header>
           <div class="progress-value-row">
-            <div class="progress-value-tile"><span class="label">Monthly Fans</span><strong>{points}</strong><span class="tile-gain"><span>Day</span><b>{day_gain}</b></span></div>
-            <div class="progress-value-tile {progress_secondary_class}"><span class="label">{progress_secondary_label}</span><strong>{progress_secondary_value}</strong><span class="tile-gain"><span>7d</span><b>{week_gain}</b></span></div>
+            <div class="progress-value-tile"><span class="label">Monthly Fans</span><strong>{points}</strong><span class="tile-averages"><span class="tile-average"><span>Daily Avg</span><b>{current_daily_avg}</b></span><span class="tile-average"><span>Weekly Avg</span><b>{current_weekly_avg}</b></span></span></div>
+            <div class="progress-value-tile {progress_secondary_class}"><span class="label">{progress_secondary_label}</span><strong>{progress_secondary_value}</strong><span class="tile-averages"><span class="tile-average"><span>Daily Avg</span><b>{last_month_daily_avg}</b></span><span class="tile-average"><span>Weekly Avg</span><b>{last_month_weekly_avg}</b></span></span></div>
           </div>
           {cutoff_rail}
         </article>
@@ -1103,8 +1140,10 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
         progress_secondary_label = html_escape(progress_secondary_label),
         progress_secondary_value = html_escape(&progress_secondary_value),
         progress_secondary_class = html_escape(progress_secondary_class),
-        day_gain = html_escape(&day_gain),
-        week_gain = html_escape(&week_gain),
+        current_daily_avg = html_escape(&current_daily_avg),
+        current_weekly_avg = html_escape(&current_weekly_avg),
+        last_month_daily_avg = html_escape(&last_month_daily_avg),
+        last_month_weekly_avg = html_escape(&last_month_weekly_avg),
         rank_emblem = rank_emblem,
         cutoff_rail = cutoff_rail,
         policy = html_escape(&truncate_chars(&policy, 24)),

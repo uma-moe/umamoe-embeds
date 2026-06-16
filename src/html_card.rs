@@ -4350,6 +4350,22 @@ mod tests {
                     value: "+232.7M".to_string(),
                 },
                 EmbedMetric {
+                    label: "Current Daily Avg".to_string(),
+                    value: "+118.1M".to_string(),
+                },
+                EmbedMetric {
+                    label: "Current Weekly Avg".to_string(),
+                    value: "+826.7M".to_string(),
+                },
+                EmbedMetric {
+                    label: "Last Month Daily Avg".to_string(),
+                    value: "+190.3M".to_string(),
+                },
+                EmbedMetric {
+                    label: "Last Month Weekly Avg".to_string(),
+                    value: "+1.3B".to_string(),
+                },
+                EmbedMetric {
                     label: "Club Rank".to_string(),
                     value: "SS".to_string(),
                 },
@@ -4392,8 +4408,15 @@ mod tests {
         assert!(html.contains(r#"<span class="label">Last Month</span><strong>5.9B</strong>"#));
         assert!(!html.contains(r#"<span class="label">Live Points</span><strong>6.3B</strong>"#));
         assert!(!html.contains(r#"<div class="progress-rank-row">"#));
-        assert!(html.contains(r#"<span class="tile-gain"><span>Day</span><b>+118.1M</b></span>"#));
-        assert!(html.contains(r#"<span class="tile-gain"><span>7d</span><b>+232.7M</b></span>"#));
+        assert!(html
+            .contains(r#"<span class="tile-average"><span>Daily Avg</span><b>+118.1M</b></span>"#));
+        assert!(html.contains(
+            r#"<span class="tile-average"><span>Weekly Avg</span><b>+826.7M</b></span>"#
+        ));
+        assert!(html
+            .contains(r#"<span class="tile-average"><span>Daily Avg</span><b>+190.3M</b></span>"#));
+        assert!(html
+            .contains(r#"<span class="tile-average"><span>Weekly Avg</span><b>+1.3B</b></span>"#));
         assert!(html.contains(r#"<div class="cutoff-rail buffer-only">"#));
         assert!(html.contains(r#"<span class="cutoff-delta up">+25.0M</span>"#));
         assert!(html.contains("Rank #100"));

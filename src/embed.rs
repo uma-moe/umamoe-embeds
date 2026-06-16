@@ -2654,13 +2654,13 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
             value: club_rank.to_string(),
         });
     }
-    if let Some(max_rank) = circle.max_rank {
+    if let Some(max_rank) = circle_lower_cutoff_rank(&circle) {
         metrics.push(EmbedMetric {
             label: "Lower Cutoff Rank".to_string(),
             value: format!("#{max_rank}"),
         });
     }
-    if let Some(min_rank) = circle.min_rank {
+    if let Some(min_rank) = circle_upper_cutoff_rank(&circle) {
         metrics.push(EmbedMetric {
             label: "Upper Cutoff Rank".to_string(),
             value: format!("#{min_rank}"),
@@ -2695,6 +2695,7 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
             value: signed_format_number(current - previous),
         });
     }
+    push_circle_progress_average_metrics(&mut metrics, &circle);
     if let Some(leader) = circle
         .leader_name
         .or_else(|| circle.leader_viewer_id.map(|id| id.to_string()))
@@ -5554,6 +5555,112 @@ struct CircleMemberGainChart {
     period: String,
 }
 
+struct CircleProgressAverages {
+    daily: i64,
+    weekly: i64,
+}
+
+fn push_circle_progress_average_metrics(metrics: &mut Vec<EmbedMetric>, circle: &CircleDetails) {
+    let current_period = latest_member_year_month(&circle.members)
+        .or_else(|| circle.last_updated.as_deref().and_then(parse_year_month));
+
+    let Some((year, month)) = current_period else {
+        return;
+    };
+
+    if let Some(averages) = circle_progress_averages_for_month(
+        &circle.members,
+        year,
+        month,
+        circle.monthly_point.or(circle.live_points),
+        false,
+    ) {
+        let daily = signed_compact_number(averages.daily);
+        let weekly = signed_compact_number(averages.weekly);
+        metrics.push(metric("Current Daily Avg", &daily));
+        metrics.push(metric("Current Weekly Avg", &weekly));
+        metrics.push(metric("Daily Avg", &daily));
+        metrics.push(metric("Weekly Avg", &weekly));
+    }
+
+    let Some((last_year, last_month)) = previous_year_month(year, month) else {
+        return;
+    };
+
+    if let Some(averages) = circle_progress_averages_for_month(
+        &circle.members,
+        last_year,
+        last_month,
+        circle.last_month_point,
+        true,
+    ) {
+        metrics.push(metric(
+            "Last Month Daily Avg",
+            &signed_compact_number(averages.daily),
+        ));
+        metrics.push(metric(
+            "Last Month Weekly Avg",
+            &signed_compact_number(averages.weekly),
+        ));
+    }
+}
+
+fn circle_progress_averages_for_month(
+    members: &[CircleMemberMonthlyData],
+    year: i64,
+    month: i64,
+    total_override: Option<i64>,
+    full_month: bool,
+) -> Option<CircleProgressAverages> {
+    let chart = circle_member_gain_chart_for_month(members, year, month, false);
+    let days = if full_month {
+        days_in_month(year, month)?
+    } else {
+        chart
+            .as_ref()
+            .map(|chart| chart.labels.len() as i64)
+            .or_else(|| {
+                total_override.and_then(|_| {
+                    parse_year_month_day_from_members(members, year, month)
+                        .or_else(|| days_in_month(year, month))
+                })
+            })?
+    };
+
+    let total = total_override.or_else(|| {
+        let chart = chart.as_ref()?;
+        let latest_index = chart.labels.len().checked_sub(1)?;
+        Some(circle_member_gain_total_at(&chart.datasets, latest_index))
+    })?;
+
+    progress_averages_from_total(total, days)
+}
+
+fn parse_year_month_day_from_members(
+    members: &[CircleMemberMonthlyData],
+    year: i64,
+    month: i64,
+) -> Option<i64> {
+    let days = days_in_month(year, month)?;
+    members
+        .iter()
+        .filter(|member| member.year == Some(year) && member.month == Some(month))
+        .filter_map(|member| last_non_zero_index(&member.daily_fans))
+        .max()
+        .map(|day| day.clamp(1, days))
+}
+
+fn progress_averages_from_total(total: i64, days: i64) -> Option<CircleProgressAverages> {
+    if days <= 0 || total <= 0 {
+        return None;
+    }
+
+    let daily = (total as f64 / days as f64).round() as i64;
+    let weekly = (total as f64 / days as f64 * 7.0).round() as i64;
+
+    Some(CircleProgressAverages { daily, weekly })
+}
+
 fn push_circle_member_gain_metrics(
     metrics: &mut Vec<EmbedMetric>,
     members: &[CircleMemberMonthlyData],
@@ -5614,15 +5721,28 @@ fn member_gain_value_at_or_before(values: &[Option<i64>], index: usize) -> Optio
 
 fn circle_member_gain_chart(members: &[CircleMemberMonthlyData]) -> Option<CircleMemberGainChart> {
     let (year, month) = latest_member_year_month(members)?;
+    circle_member_gain_chart_for_month(members, year, month, true)
+}
+
+fn circle_member_gain_chart_for_month(
+    members: &[CircleMemberMonthlyData],
+    year: i64,
+    month: i64,
+    allow_all_members_fallback: bool,
+) -> Option<CircleMemberGainChart> {
     let month_members = members
         .iter()
         .filter(|member| member.year == Some(year) && member.month == Some(month))
         .collect::<Vec<_>>();
-    let month_members = if month_members.is_empty() {
+    let month_members = if month_members.is_empty() && allow_all_members_fallback {
         members.iter().collect::<Vec<_>>()
     } else {
         month_members
     };
+    if month_members.is_empty() {
+        return None;
+    }
+
     let days_in_month = days_in_month(year, month)?;
     let max_index_with_data = month_members
         .iter()
@@ -5760,6 +5880,14 @@ fn latest_member_year_month(members: &[CircleMemberMonthlyData]) -> Option<(i64,
         .iter()
         .filter_map(|member| Some((member.year?, member.month?)))
         .max()
+}
+
+fn previous_year_month(year: i64, month: i64) -> Option<(i64, i64)> {
+    match month {
+        2..=12 => Some((year, month - 1)),
+        1 => Some((year - 1, 12)),
+        _ => None,
+    }
 }
 
 fn last_non_zero_index(values: &[i64]) -> Option<i64> {
@@ -6144,13 +6272,13 @@ fn push_circle_row_metrics(metrics: &mut Vec<EmbedMetric>, row: usize, circle: &
     metrics.push(metric(&format!("Club Rank {row}"), &club_rank));
     metrics.push(metric(&format!("Club Rank Id {row}"), &club_rank_id));
     metrics.push(metric(&format!("Points {row}"), &compact_number(points)));
-    if let Some(max_rank) = circle.max_rank {
+    if let Some(max_rank) = circle_lower_cutoff_rank(circle) {
         metrics.push(metric(
             &format!("Lower Cutoff Rank {row}"),
             &format!("#{max_rank}"),
         ));
     }
-    if let Some(min_rank) = circle.min_rank {
+    if let Some(min_rank) = circle_upper_cutoff_rank(circle) {
         metrics.push(metric(
             &format!("Upper Cutoff Rank {row}"),
             &format!("#{min_rank}"),
@@ -7939,25 +8067,107 @@ fn join_style_label(value: i64) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ClubTier {
+    label: &'static str,
+    id: i64,
+    min_rank: Option<i64>,
+    max_rank: Option<i64>,
+}
+
+const CLUB_TIERS: &[ClubTier] = &[
+    ClubTier {
+        label: "SS",
+        id: 11,
+        min_rank: Some(1),
+        max_rank: Some(10),
+    },
+    ClubTier {
+        label: "S+",
+        id: 10,
+        min_rank: Some(11),
+        max_rank: Some(30),
+    },
+    ClubTier {
+        label: "S",
+        id: 9,
+        min_rank: Some(31),
+        max_rank: Some(100),
+    },
+    ClubTier {
+        label: "A+",
+        id: 8,
+        min_rank: Some(101),
+        max_rank: Some(500),
+    },
+    ClubTier {
+        label: "A",
+        id: 7,
+        min_rank: Some(501),
+        max_rank: Some(1000),
+    },
+    ClubTier {
+        label: "B+",
+        id: 6,
+        min_rank: Some(1001),
+        max_rank: Some(3000),
+    },
+    ClubTier {
+        label: "B",
+        id: 5,
+        min_rank: Some(3001),
+        max_rank: Some(5000),
+    },
+    ClubTier {
+        label: "C+",
+        id: 4,
+        min_rank: Some(5001),
+        max_rank: Some(7000),
+    },
+    ClubTier {
+        label: "C",
+        id: 3,
+        min_rank: Some(7001),
+        max_rank: Some(10000),
+    },
+    ClubTier {
+        label: "D+",
+        id: 2,
+        min_rank: Some(10001),
+        max_rank: None,
+    },
+    ClubTier {
+        label: "D",
+        id: 1,
+        min_rank: None,
+        max_rank: None,
+    },
+];
+
+fn club_tier(value: i64) -> Option<ClubTier> {
+    CLUB_TIERS.iter().find(|tier| tier.id == value).copied()
+}
+
+fn circle_lower_cutoff_rank(circle: &CircleDetails) -> Option<i64> {
+    circle
+        .max_rank
+        .or_else(|| circle.club_rank.and_then(|rank| club_tier(rank)?.max_rank))
+}
+
+fn circle_upper_cutoff_rank(circle: &CircleDetails) -> Option<i64> {
+    circle
+        .min_rank
+        .or_else(|| circle.club_rank.and_then(|rank| club_tier(rank)?.min_rank))
+}
+
 fn club_rank_label(value: i64) -> String {
     if value <= 0 {
         return "Rank".to_string();
     }
 
-    match value {
-        1 => "D".to_string(),
-        2 => "D+".to_string(),
-        3 => "C".to_string(),
-        4 => "C+".to_string(),
-        5 => "B".to_string(),
-        6 => "B+".to_string(),
-        7 => "A".to_string(),
-        8 => "A+".to_string(),
-        9 => "S".to_string(),
-        10 => "S+".to_string(),
-        11 => "SS".to_string(),
-        _ => format!("R{value}"),
-    }
+    club_tier(value)
+        .map(|tier| tier.label.to_string())
+        .unwrap_or_else(|| format!("R{value}"))
 }
 
 fn policy_label(value: i64) -> &'static str {
@@ -8359,6 +8569,72 @@ mod tests {
         assert_eq!(metric("Lower Gap Delta 1"), Some("+25.0M"));
         assert_eq!(metric("Upper Gap 1"), Some("0"));
         assert_eq!(metric("Upper Gap Delta 1"), Some("-4.0M"));
+    }
+
+    #[test]
+    fn circle_list_metrics_fill_cutoff_ranks_from_tier_table() {
+        let metrics = circle_list_metrics(
+            CircleListResponse {
+                circles: vec![CircleDetails {
+                    circle_id: Some(123),
+                    name: Some("Spica".to_string()),
+                    member_count: Some(30),
+                    monthly_rank: Some(52),
+                    monthly_point: Some(1_151_810_282),
+                    club_rank: Some(9),
+                    ..CircleDetails::default()
+                }],
+                list: Vec::new(),
+                total: None,
+                total_count: None,
+            },
+            &[],
+            &config(),
+        );
+
+        let metric = |label: &str| {
+            metrics
+                .iter()
+                .find(|metric| metric.label == label)
+                .map(|metric| metric.value.as_str())
+        };
+
+        assert_eq!(metric("Lower Cutoff Rank 1"), Some("#100"));
+        assert_eq!(metric("Upper Cutoff Rank 1"), Some("#31"));
+    }
+
+    #[test]
+    fn circle_progress_average_metrics_mirror_current_and_previous_month() {
+        let circle = CircleDetails {
+            monthly_point: Some(1_200),
+            last_month_point: Some(3_100),
+            members: vec![CircleMemberMonthlyData {
+                viewer_id: Some(1),
+                trainer_name: Some("Current".to_string()),
+                year: Some(2026),
+                month: Some(6),
+                daily_fans: vec![
+                    100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250,
+                ],
+                next_month_start: None,
+            }],
+            ..CircleDetails::default()
+        };
+        let mut metrics = Vec::new();
+
+        push_circle_progress_average_metrics(&mut metrics, &circle);
+
+        let value = |label: &str| {
+            metrics
+                .iter()
+                .find(|metric| metric.label == label)
+                .map(|metric| metric.value.as_str())
+        };
+
+        assert_eq!(value("Current Daily Avg"), Some("+80"));
+        assert_eq!(value("Current Weekly Avg"), Some("+560"));
+        assert_eq!(value("Last Month Daily Avg"), Some("+100"));
+        assert_eq!(value("Last Month Weekly Avg"), Some("+700"));
     }
 
     #[test]
