@@ -8210,7 +8210,15 @@ fn circle_lower_cutoff_rank(circle: &CircleDetails) -> Option<i64> {
 fn circle_upper_cutoff_rank(circle: &CircleDetails) -> Option<i64> {
     circle
         .min_rank
-        .or_else(|| circle.club_rank.and_then(|rank| club_tier(rank)?.min_rank))
+        .and_then(|rank| rank.checked_sub(1))
+        .filter(|rank| *rank > 0)
+        .or_else(|| {
+            circle
+                .club_rank
+                .and_then(|rank| club_tier(rank)?.min_rank)
+                .and_then(|rank| rank.checked_sub(1))
+                .filter(|rank| *rank > 0)
+        })
 }
 
 fn club_rank_label(value: i64) -> String {
@@ -8618,7 +8626,7 @@ mod tests {
 
         assert_eq!(metric("Points 1"), Some("5.9B"));
         assert_eq!(metric("Lower Cutoff Rank 1"), Some("#100"));
-        assert_eq!(metric("Upper Cutoff Rank 1"), Some("#1"));
+        assert_eq!(metric("Upper Cutoff Rank 1"), None);
         assert_eq!(metric("Lower Gap 1"), Some("100.0M"));
         assert_eq!(metric("Lower Gap Delta 1"), Some("+25.0M"));
         assert_eq!(metric("Upper Gap 1"), Some("0"));
@@ -8654,7 +8662,7 @@ mod tests {
         };
 
         assert_eq!(metric("Lower Cutoff Rank 1"), Some("#100"));
-        assert_eq!(metric("Upper Cutoff Rank 1"), Some("#31"));
+        assert_eq!(metric("Upper Cutoff Rank 1"), Some("#30"));
     }
 
     #[test]
