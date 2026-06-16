@@ -190,6 +190,8 @@ struct ProfileCircleInfo {
     live_rank: Option<i64>,
     #[serde(default)]
     club_rank: Option<i64>,
+    #[serde(default, alias = "clubRankName")]
+    club_rank_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -661,6 +663,8 @@ struct CircleDetailsResponse {
     members: Vec<CircleMemberMonthlyData>,
     #[serde(default)]
     club_rank: Option<i64>,
+    #[serde(default, alias = "clubRankName")]
+    club_rank_name: Option<String>,
     #[serde(
         default,
         alias = "minRank",
@@ -741,6 +745,8 @@ struct CircleDetails {
     live_points: Option<i64>,
     #[serde(default)]
     club_rank: Option<i64>,
+    #[serde(default, alias = "clubRankName")]
+    club_rank_name: Option<String>,
     #[serde(
         default,
         alias = "minRank",
@@ -1903,6 +1909,16 @@ async fn profile_metadata(
                 .as_ref()
                 .and_then(|circle| circle.club_rank)
                 .or_else(|| circle_details.as_ref().and_then(|circle| circle.club_rank));
+            let circle_tier_name = circle
+                .as_ref()
+                .and_then(|circle| circle.club_rank_name.as_deref())
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| {
+                    circle_details
+                        .as_ref()
+                        .and_then(|circle| circle.club_rank_name.as_deref())
+                        .filter(|name| !name.trim().is_empty())
+                });
             let fan_history = profile.fan_history.as_ref();
             let alltime = fan_history.and_then(|history| history.alltime.as_ref());
             let rolling = fan_history.and_then(|history| history.rolling.as_ref());
@@ -1936,7 +1952,10 @@ async fn profile_metadata(
                 metrics.push(metric("Club Fans", &compact_number(points)));
             }
             if let Some(club_rank) = circle_tier {
-                metrics.push(metric("Club Tier", &club_rank_label(club_rank)));
+                metrics.push(metric(
+                    "Club Tier",
+                    &club_rank_display_name(club_rank, circle_tier_name),
+                ));
                 metrics.push(metric("Club Tier Id", &club_rank.to_string()));
             }
             if let Some(fans) = fans {
@@ -2649,7 +2668,7 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
     if let Some(club_rank) = circle.club_rank {
         metrics.push(EmbedMetric {
             label: "Club Rank".to_string(),
-            value: club_rank_label(club_rank).to_string(),
+            value: club_rank_display_name(club_rank, circle.club_rank_name.as_deref()),
         });
         metrics.push(EmbedMetric {
             label: "Club Rank Id".to_string(),
@@ -5531,6 +5550,7 @@ fn circle_from_response(response: CircleDetailsResponse) -> CircleDetails {
     let mut circle = response.circle;
     circle.members = response.members;
     circle.club_rank = response.club_rank.or(circle.club_rank);
+    circle.club_rank_name = response.club_rank_name.or(circle.club_rank_name);
     circle.min_rank = response.min_rank.or(circle.min_rank);
     circle.max_rank = response.max_rank.or(circle.max_rank);
     circle.fans_to_next_tier = response.fans_to_next_tier.or(circle.fans_to_next_tier);
@@ -6220,7 +6240,7 @@ fn push_circle_row_metrics(metrics: &mut Vec<EmbedMetric>, row: usize, circle: &
         .to_string();
     let club_rank = circle
         .club_rank
-        .map(club_rank_label)
+        .map(|rank| club_rank_display_name(rank, circle.club_rank_name.as_deref()))
         .unwrap_or_else(|| "Rank".to_string());
     let club_rank_id = circle
         .club_rank
@@ -8231,6 +8251,13 @@ fn club_rank_label(value: i64) -> String {
         .unwrap_or_else(|| format!("R{value}"))
 }
 
+fn club_rank_display_name(value: i64, name: Option<&str>) -> String {
+    name.map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| club_rank_label(value))
+}
+
 fn policy_label(value: i64) -> &'static str {
     match value {
         1 => "You Do You",
@@ -8663,6 +8690,44 @@ mod tests {
 
         assert_eq!(metric("Lower Cutoff Rank 1"), Some("#100"));
         assert_eq!(metric("Upper Cutoff Rank 1"), Some("#30"));
+    }
+
+    #[test]
+    fn circle_response_uses_backend_club_rank_name_and_icon_id() {
+        let response: CircleDetailsResponse = serde_json::from_str(
+            r#"{
+                "circle": {
+                    "circle_id": 123,
+                    "name": "Spica",
+                    "monthly_rank": 52,
+                    "monthly_point": 1151810282
+                },
+                "club_rank": 11,
+                "club_rank_name": "Backend SS"
+            }"#,
+        )
+        .expect("circle response parses");
+        let circle = circle_from_response(response);
+        let metrics = circle_list_metrics(
+            CircleListResponse {
+                circles: vec![circle],
+                list: Vec::new(),
+                total: None,
+                total_count: None,
+            },
+            &[],
+            &config(),
+        );
+
+        let metric = |label: &str| {
+            metrics
+                .iter()
+                .find(|metric| metric.label == label)
+                .map(|metric| metric.value.as_str())
+        };
+
+        assert_eq!(metric("Club Rank 1"), Some("Backend SS"));
+        assert_eq!(metric("Club Rank Id 1"), Some("11"));
     }
 
     #[test]
