@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     io::Read,
     sync::{Mutex, OnceLock},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -787,7 +787,13 @@ struct CircleDetails {
     yesterday_fans_to_next_tier: Option<i64>,
     #[serde(default)]
     yesterday_fans_to_lower_tier: Option<i64>,
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "last_update",
+        alias = "lastUpdated",
+        alias = "updated_at",
+        alias = "updatedAt"
+    )]
     last_updated: Option<String>,
 }
 
@@ -2733,7 +2739,21 @@ async fn circle_metadata(client: &Client, config: &Config, circle_id: &str) -> E
         title: format!("{name} | uma.moe"),
         description: description_parts.join(" "),
         canonical_url: absolute_url(config, &format!("/circles/{circle_id}")),
-        image_url: image_url(config, "circle", circle_id),
+        image_url: circle
+            .last_updated
+            .as_deref()
+            .filter(|updated| !updated.trim().is_empty())
+            .map(|updated| {
+                image_url_with_query_and_cache_param(
+                    config,
+                    "circle",
+                    circle_id,
+                    None,
+                    "__last_update",
+                    updated,
+                )
+            })
+            .unwrap_or_else(|| image_url(config, "circle", circle_id)),
         image_alt: format!("uma.moe club preview for {name}"),
         kind_label: "Club".to_string(),
         metrics,
@@ -2753,9 +2773,16 @@ async fn circles_metadata(client: &Client, config: &Config, query: Option<&str>)
 
     EmbedMetadata {
         title: "Club Leaderboard | uma.moe".to_string(),
-        description: "Find and compare Umamusume clubs by rank, monthly points, tier gaps, members, and recruitment.".to_string(),
+        description: "Find and compare Umamusume clubs by rank, last-month points, current progress, members, and recruitment.".to_string(),
         canonical_url: absolute_url_with_query(config, "/circles", clean_query.as_deref()),
-        image_url: image_url_with_query(config, "page", "circles", clean_query.as_deref()),
+        image_url: image_url_with_query_and_cache_param(
+            config,
+            "page",
+            "circles",
+            clean_query.as_deref(),
+            "__bucket",
+            &five_minute_cache_bucket(),
+        ),
         image_alt: "uma.moe club leaderboard preview image".to_string(),
         kind_label: "Clubs".to_string(),
         metrics,
@@ -6251,13 +6278,18 @@ fn push_circle_row_metrics(metrics: &mut Vec<EmbedMetric>, row: usize, circle: &
         .or(circle.monthly_point)
         .or(circle.live_points)
         .unwrap_or_default();
+    let last_month_points = circle.last_month_point.unwrap_or(points);
+    let current_points = circle
+        .monthly_point
+        .or(circle.live_points)
+        .unwrap_or(points);
     let daily = match (circle.monthly_point, circle.yesterday_points) {
         (Some(current), Some(previous)) => signed_compact_number(current - previous),
-        _ => "Daily".to_string(),
+        _ => "--".to_string(),
     };
     let today = match (circle.live_points, circle.monthly_point) {
         (Some(live), Some(monthly)) if live >= monthly => signed_compact_number(live - monthly),
-        _ => "Live".to_string(),
+        _ => "--".to_string(),
     };
     let delta = match (circle.monthly_rank, circle.yesterday_rank) {
         (Some(current), Some(previous)) if previous != current => {
@@ -6294,6 +6326,14 @@ fn push_circle_row_metrics(metrics: &mut Vec<EmbedMetric>, row: usize, circle: &
     metrics.push(metric(&format!("Club Rank {row}"), &club_rank));
     metrics.push(metric(&format!("Club Rank Id {row}"), &club_rank_id));
     metrics.push(metric(&format!("Points {row}"), &compact_number(points)));
+    metrics.push(metric(
+        &format!("Last Month Points {row}"),
+        &compact_number(last_month_points),
+    ));
+    metrics.push(metric(
+        &format!("Current Points {row}"),
+        &compact_number(current_points),
+    ));
     if let Some(max_rank) = circle_lower_cutoff_rank(circle) {
         metrics.push(metric(
             &format!("Lower Cutoff Rank {row}"),
@@ -7577,6 +7617,34 @@ fn image_url_with_query(config: &Config, kind: &str, id: &str, query: Option<&st
     }
 }
 
+fn image_url_with_query_and_cache_param(
+    config: &Config,
+    kind: &str,
+    id: &str,
+    query: Option<&str>,
+    cache_key: &str,
+    cache_value: &str,
+) -> String {
+    let mut pairs = query_pairs(query);
+    set_param(&mut pairs, cache_key, cache_value);
+
+    let mut serializer = form_urlencoded::Serializer::new(String::new());
+    for (key, value) in pairs {
+        serializer.append_pair(&key, &value);
+    }
+
+    image_url_with_query(config, kind, id, Some(&serializer.finish()))
+}
+
+fn five_minute_cache_bucket() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+
+    (seconds / 300).to_string()
+}
+
 fn set_param(params: &mut Vec<(String, String)>, key: &str, value: &str) {
     if value.trim().is_empty() {
         return;
@@ -8616,7 +8684,7 @@ mod tests {
     }
 
     #[test]
-    fn circle_list_metrics_prefer_last_month_points_and_tier_gap_deltas() {
+    fn circle_list_metrics_split_last_month_and_current_points() {
         let metrics = circle_list_metrics(
             CircleListResponse {
                 circles: vec![CircleDetails {
@@ -8652,6 +8720,8 @@ mod tests {
         };
 
         assert_eq!(metric("Points 1"), Some("5.9B"));
+        assert_eq!(metric("Last Month Points 1"), Some("5.9B"));
+        assert_eq!(metric("Current Points 1"), Some("6.2B"));
         assert_eq!(metric("Lower Cutoff Rank 1"), Some("#100"));
         assert_eq!(metric("Upper Cutoff Rank 1"), None);
         assert_eq!(metric("Lower Gap 1"), Some("100.0M"));
@@ -8728,6 +8798,23 @@ mod tests {
 
         assert_eq!(metric("Club Rank 1"), Some("Backend SS"));
         assert_eq!(metric("Club Rank Id 1"), Some("11"));
+    }
+
+    #[test]
+    fn circle_response_accepts_last_update_alias() {
+        let response: CircleDetailsResponse = serde_json::from_str(
+            r#"{
+                "circle": {
+                    "circle_id": 123,
+                    "name": "Spica",
+                    "last_update": "2026-06-16T08:30:00Z"
+                }
+            }"#,
+        )
+        .expect("circle response parses");
+        let circle = circle_from_response(response);
+
+        assert_eq!(circle.last_updated.as_deref(), Some("2026-06-16T08:30:00Z"));
     }
 
     #[test]
@@ -9312,6 +9399,40 @@ mod tests {
         assert_eq!(
             clean_query(Some("filters=abc&__embed=1"), "__embed").as_deref(),
             Some("filters=abc")
+        );
+    }
+
+    #[test]
+    fn image_url_cache_param_appends_and_replaces_internal_key() {
+        let url = image_url_with_query_and_cache_param(
+            &config(),
+            "page",
+            "circles",
+            Some("sort=rank&__bucket=old"),
+            "__bucket",
+            "123",
+        );
+
+        assert_eq!(
+            url,
+            "https://uma.moe/__embeds/images/page/circles.png?__v=test&sort=rank&__bucket=123"
+        );
+    }
+
+    #[test]
+    fn image_url_cache_param_can_use_last_update_value() {
+        let url = image_url_with_query_and_cache_param(
+            &config(),
+            "circle",
+            "717148109",
+            None,
+            "__last_update",
+            "2026-06-16T08:30:00Z",
+        );
+
+        assert_eq!(
+            url,
+            "https://uma.moe/__embeds/images/circle/717148109.png?__v=test&__last_update=2026-06-16T08%3A30%3A00Z"
         );
     }
 

@@ -4305,12 +4305,15 @@ mod tests {
         assert!(html.contains("clubs-card"));
         assert!(html.contains("embed-brand-corner"));
         assert!(!html.contains("summary-strip"));
-        assert!(html.contains("tier-gaps-row"));
-        assert!(html.contains("Lower / Upper"));
+        assert!(html.contains("current-box"));
+        assert!(html.contains("This Month"));
         assert!(html.contains("last month"));
-        assert!(html.contains("gap-delta"));
+        assert!(html.contains("current-gain"));
         assert!(html.contains("Yesterday:"));
         assert!(html.contains("club-row rank-1"));
+        assert!(!html.contains("tier-gaps-row"));
+        assert!(!html.contains("Lower / Upper"));
+        assert!(!html.contains("gap-delta"));
         assert!(!html.contains("record-card"));
         assert!(!html.contains("overview-body"));
     }

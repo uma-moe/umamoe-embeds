@@ -254,9 +254,9 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     .circle-emblem {{
       display: grid;
       place-items: center;
-      width: 25px;
-      height: 25px;
-      flex: 0 0 25px;
+      width: 36px;
+      height: 36px;
+      flex: 0 0 36px;
       border: 0;
       border-radius: 0;
       background: transparent;
@@ -265,8 +265,8 @@ pub(super) fn render_card_html(meta: &EmbedMetadata) -> String {
     }}
 
     .circle-emblem img {{
-      width: 25px;
-      height: 25px;
+      width: 36px;
+      height: 36px;
       object-fit: contain;
     }}
 
