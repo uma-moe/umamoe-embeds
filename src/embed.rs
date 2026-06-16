@@ -1284,10 +1284,12 @@ static RESOURCE_CACHE: OnceLock<Mutex<Option<ResourceCacheEntry>>> = OnceLock::n
 struct BannerTimelineCacheEntry {
     base_url: String,
     token: Option<String>,
+    fetched_at: Instant,
     details: Option<TimelineEmbedDetails>,
 }
 
 static BANNER_TIMELINE_CACHE: OnceLock<Mutex<Option<BannerTimelineCacheEntry>>> = OnceLock::new();
+const BANNER_TIMELINE_CACHE_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Clone, Debug)]
 struct SiteStatsCacheEntry {
@@ -6652,7 +6654,8 @@ async fn fetch_banner_timeline_details(
     if let Ok(guard) = cache.lock() {
         if let Some(entry) = guard.as_ref() {
             let cache_matches = entry.base_url == config.resources_base_url
-                && entry.token == config.resources_api_token;
+                && entry.token == config.resources_api_token
+                && entry.fetched_at.elapsed() < BANNER_TIMELINE_CACHE_TTL;
             if cache_matches {
                 return entry.details.clone();
             }
@@ -6668,6 +6671,7 @@ async fn fetch_banner_timeline_details(
             *guard = Some(BannerTimelineCacheEntry {
                 base_url: config.resources_base_url.clone(),
                 token: config.resources_api_token.clone(),
+                fetched_at: Instant::now(),
                 details: details.clone(),
             });
         }
@@ -6894,16 +6898,64 @@ fn timeline_description_from_value(object: &serde_json::Map<String, Value>) -> O
             "details",
             "race_description",
             "raceDescription",
-            "race_conditions",
-            "raceConditions",
-            "conditions",
-            "condition",
             "course_description",
             "courseDescription",
         ],
     )
+    .or_else(|| timeline_structured_description_from_value(object))
+    .or_else(|| {
+        string_or_string_list_field(
+            object,
+            &[
+                "race_conditions",
+                "raceConditions",
+                "conditions",
+                "condition",
+            ],
+        )
+    })
     .map(|description| description.trim().to_string())
     .filter(|description| !description.is_empty())
+}
+
+fn timeline_structured_description_from_value(
+    object: &serde_json::Map<String, Value>,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    for keys in [
+        &[
+            "track",
+            "course",
+            "race_track",
+            "raceTrack",
+            "race_course",
+            "raceCourse",
+        ][..],
+        &[
+            "distance",
+            "race_distance",
+            "raceDistance",
+            "distance_label",
+            "distanceLabel",
+        ],
+        &[
+            "conditions",
+            "condition",
+            "race_conditions",
+            "raceConditions",
+            "weather",
+        ],
+    ] {
+        if let Some(value) = string_field(object, keys)
+            .or_else(|| nested_string_field(object, &["race", "course"], keys))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            parts.push(value.to_string());
+        }
+    }
+
+    (!parts.is_empty()).then(|| parts.join("<br>"))
 }
 
 fn string_field<'a>(object: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
@@ -8897,6 +8949,53 @@ mod tests {
         assert_eq!(
             champions.description.as_deref(),
             Some("Hanshin - Turf<br>2200m - Medium - Clockwise<br>Good - Summer - Cloudy</div>")
+        );
+    }
+
+    #[test]
+    fn banner_timeline_accepts_generated_story_and_structured_champions_fields() {
+        let details = timeline_details_from_value(serde_json::json!({
+            "events": [
+                {
+                    "type": "story_event",
+                    "title": "Seek, Solve, Summer Walk!",
+                    "image": "06_seek_solve_summer_walk_banner.png",
+                    "image_path": "assets/images/story/06_seek_solve_summer_walk_banner.png",
+                    "description": "Story Event: Seek, Solve, Summer Walk!",
+                    "global_release_date": "2026-06-11T22:00:00Z",
+                    "estimated_end_date": "2026-06-21T21:59:59Z"
+                },
+                {
+                    "type": "champions_meeting",
+                    "title": "Champions Meeting: Cancer Cup",
+                    "track": "Hanshin - Turf",
+                    "distance": "2200m - Medium - Clockwise",
+                    "conditions": "Good - Summer - Cloudy",
+                    "global_release_date": "2026-06-21T22:00:00Z",
+                    "estimated_end_date": "2026-06-28T21:59:59Z"
+                }
+            ]
+        }))
+        .expect("generated timeline event shape should parse");
+
+        let story = details
+            .events
+            .iter()
+            .find(|event| event.event_type == "story_event")
+            .expect("story event should parse");
+        let champions = details
+            .events
+            .iter()
+            .find(|event| event.event_type == "champions_meeting")
+            .expect("champions meeting should parse");
+
+        assert_eq!(
+            story.image_path.as_deref(),
+            Some("assets/images/story/06_seek_solve_summer_walk_banner.png")
+        );
+        assert_eq!(
+            champions.description.as_deref(),
+            Some("Hanshin - Turf<br>2200m - Medium - Clockwise<br>Good - Summer - Cloudy")
         );
     }
 

@@ -1061,9 +1061,7 @@ fn normalize_timeline_asset_path(path: &str, event_type: &str) -> String {
     }
 
     if normalized.ends_with(".png")
-        && (normalized.contains("/character/banner/")
-            || normalized.contains("/support/banner/")
-            || normalized.contains("/story/"))
+        && (normalized.contains("/character/banner/") || normalized.contains("/support/banner/"))
     {
         format!("{}.webp", normalized.trim_end_matches(".png"))
     } else {
@@ -1623,14 +1621,10 @@ fn render_release_card(card: &TimelineCard, asset_base: &str, frontend_origin: &
     )
 }
 
-fn timeline_event_art_url(asset_base: &str, frontend_origin: &str, image_path: &str) -> String {
+fn timeline_event_art_url(asset_base: &str, _frontend_origin: &str, image_path: &str) -> String {
     let path = image_path.trim().trim_start_matches('/');
     if path.starts_with("http://") || path.starts_with("https://") {
         return path.to_string();
-    }
-
-    if !frontend_origin.trim().is_empty() {
-        return asset_url(frontend_origin, &format!("assets/{path}"));
     }
 
     asset_url(asset_base, path)
@@ -1689,12 +1683,19 @@ mod tests {
             "images/story/06_seek_solve_summer_walk_banner.webp"
         );
         assert_eq!(
+            normalize_timeline_asset_path(
+                "assets/images/story/06_seek_solve_summer_walk_banner.png",
+                "story_event"
+            ),
+            "images/story/06_seek_solve_summer_walk_banner.png"
+        );
+        assert_eq!(
             timeline_event_art_url(
                 "https://uma.moe/assets",
                 "https://beta.uma.moe",
-                "images/story/06_seek_solve_summer_walk_banner.webp"
+                "images/story/06_seek_solve_summer_walk_banner.png"
             ),
-            "https://beta.uma.moe/assets/images/story/06_seek_solve_summer_walk_banner.webp"
+            "https://uma.moe/assets/images/story/06_seek_solve_summer_walk_banner.png"
         );
     }
 
