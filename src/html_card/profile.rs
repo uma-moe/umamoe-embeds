@@ -2439,14 +2439,19 @@ fn render_stadium_running_style(asset_base: &str, running_style: Option<i64>) ->
         return String::new();
     };
     let index = (style - 1).clamp(0, 3);
-    let image = asset_url(
+    let image_webp = asset_url(
+        asset_base,
+        &format!("/images/icon/common/utx_ico_runstyle_{index:02}.webp"),
+    );
+    let image_png = asset_url(
         asset_base,
         &format!("/images/icon/common/utx_ico_runstyle_{index:02}.png"),
     );
 
     format!(
-        r#"<span class="stadium-runstyle-badge"><img src="{image}" alt="" onerror="this.parentElement.remove()"></span>"#,
-        image = html_escape(&image),
+        r#"<span class="stadium-runstyle-badge"><img src="{image_webp}" alt="" onerror="this.onerror=null;this.src='{image_png}'"></span>"#,
+        image_webp = html_escape(&image_webp),
+        image_png = html_escape(&image_png),
     )
 }
 

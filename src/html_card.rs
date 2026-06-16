@@ -4975,7 +4975,7 @@ mod tests {
                 },
                 EmbedMetric {
                     label: "Stadium Member 1 Running Style".to_string(),
-                    value: "2".to_string(),
+                    value: "4".to_string(),
                 },
             ],
             database: None,
@@ -5021,7 +5021,8 @@ mod tests {
         assert!(html.contains("stadium-runstyle-badge"));
         assert!(html.contains("images/character_stand/chara_stand_100101.webp"));
         assert!(html.contains("images/icon/ranks/"));
-        assert!(html.contains("images/icon/common/utx_ico_runstyle_01.png"));
+        assert!(html.contains("images/icon/common/utx_ico_runstyle_03.webp"));
+        assert!(html.contains("images/icon/common/utx_ico_runstyle_03.png"));
         assert!(!html.contains(r#"<span class="visibility-pill">Public</span>"#));
         assert!(html.contains("embed-brand-corner"));
         assert!(!html.contains("record-card"));
