@@ -127,6 +127,10 @@ async fn page_handler(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
+    if is_internal_embed_path(uri.path()) {
+        return plain_response(StatusCode::NOT_FOUND, "Unknown embed path.");
+    }
+
     if (method == Method::GET || method == Method::HEAD)
         && should_render_embed(&headers, &uri, &state.config)
     {
@@ -464,6 +468,11 @@ fn image_cache_control(config: &Config) -> String {
     )
 }
 
+fn is_internal_embed_path(path: &str) -> bool {
+    let path = path.to_ascii_lowercase();
+    path == "/__embeds" || path.starts_with("/__embeds/")
+}
+
 impl ImageCache {
     fn new(max_entries: usize, render_max_concurrency: usize) -> Self {
         Self {
@@ -580,5 +589,59 @@ fn init_tracing() {
 async fn shutdown_signal() {
     if let Err(error) = tokio::signal::ctrl_c().await {
         warn!(%error, "failed to listen for shutdown signal");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_state() -> Arc<AppState> {
+        let config = Config {
+            bind_addr: "127.0.0.1:8080".parse().unwrap(),
+            public_base_url: "https://uma.moe".to_string(),
+            frontend_origin: "https://uma.moe".to_string(),
+            asset_base_url: "https://uma.moe/assets".to_string(),
+            api_base_url: "http://umamoe-backend:3201".to_string(),
+            search_base_url: "http://umamoe-search:3202".to_string(),
+            resources_base_url: "http://umamoe-resources:3204/resources".to_string(),
+            resources_api_token: None,
+            bot_user_agent_tokens: vec!["Discordbot".to_string()],
+            debug_query_key: "__embed".to_string(),
+            image_cache_bust: "test".to_string(),
+            image_cache_max_age: Duration::from_secs(300),
+            image_cache_stale_while_revalidate: Duration::from_secs(86_400),
+            image_cache_max_entries: 256,
+            render_max_concurrency: 1,
+        };
+
+        Arc::new(AppState {
+            client: Client::new(),
+            html_renderer: html_card::HtmlRenderer::new(1),
+            image_cache: ImageCache::new(256, 1),
+            config,
+        })
+    }
+
+    #[test]
+    fn internal_embed_path_detection_covers_namespace() {
+        assert!(is_internal_embed_path("/__embeds"));
+        assert!(is_internal_embed_path("/__embeds/images/"));
+        assert!(is_internal_embed_path("/__EMBEDS/images/circle/1.png"));
+        assert!(!is_internal_embed_path("/circles/772781438"));
+    }
+
+    #[tokio::test]
+    async fn malformed_internal_embed_path_returns_404_before_proxy() {
+        let response = page_handler(
+            State(test_state()),
+            Method::GET,
+            "/__embeds/images/".parse::<Uri>().unwrap(),
+            HeaderMap::new(),
+            Bytes::new(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }
