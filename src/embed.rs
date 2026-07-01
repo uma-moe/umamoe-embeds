@@ -60,6 +60,7 @@ pub struct TierlistCardDetails {
 
 #[derive(Clone, Debug)]
 pub struct TimelineEmbedDetails {
+    pub cache_key: Option<String>,
     pub events: Vec<TimelineEventDetails>,
 }
 
@@ -3077,6 +3078,16 @@ async fn timeline_metadata(client: &Client, config: &Config) -> EmbedMetadata {
     let mut meta = page_metadata(config, "timeline", "/timeline", Some("Timeline"));
     meta.resources.timeline = fetch_banner_timeline_details(client, config).await;
     if let Some(timeline) = meta.resources.timeline() {
+        if let Some(cache_key) = timeline.cache_key.as_deref() {
+            meta.image_url = image_url_with_query_and_cache_param(
+                config,
+                "page",
+                "timeline",
+                None,
+                "__timeline",
+                cache_key,
+            );
+        }
         let upcoming_count = timeline.events.len();
         upsert_metric(&mut meta.metrics, "Events", &upcoming_count.to_string());
         upsert_metric(&mut meta.metrics, "Source", "banner_timeline");
@@ -6757,7 +6768,10 @@ fn timeline_details_from_raw(raw: BannerTimelineRaw) -> Option<TimelineEmbedDeta
     if events.is_empty() {
         None
     } else {
-        Some(TimelineEmbedDetails { events })
+        Some(TimelineEmbedDetails {
+            cache_key: None,
+            events,
+        })
     }
 }
 
@@ -6807,6 +6821,7 @@ fn timeline_event_from_raw(raw: BannerTimelineEventRaw) -> Option<TimelineEventD
 }
 
 fn timeline_details_from_value(value: Value) -> Option<TimelineEmbedDetails> {
+    let cache_key = timeline_cache_key_from_value(&value);
     let events = match value {
         Value::Array(events) => events,
         Value::Object(mut object) => object.remove("events")?.as_array()?.clone(),
@@ -6827,8 +6842,43 @@ fn timeline_details_from_value(value: Value) -> Option<TimelineEmbedDetails> {
     if events.is_empty() {
         None
     } else {
-        Some(TimelineEmbedDetails { events })
+        Some(TimelineEmbedDetails { cache_key, events })
     }
+}
+
+fn timeline_cache_key_from_value(value: &Value) -> Option<String> {
+    if let Some(object) = value.as_object() {
+        if let Some(version) = string_field(
+            object,
+            &[
+                "version",
+                "resource_version",
+                "resourceVersion",
+                "generated_at",
+                "generatedAt",
+                "updated_at",
+                "updatedAt",
+            ],
+        ) {
+            let version = version.trim();
+            if !version.is_empty() {
+                return Some(version.to_string());
+            }
+        }
+    }
+
+    serde_json::to_string(value)
+        .ok()
+        .map(|payload| stable_cache_hash(&payload))
+}
+
+fn stable_cache_hash(payload: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in payload.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 fn timeline_event_from_value(value: Value) -> Option<TimelineEventDetails> {
@@ -8122,16 +8172,32 @@ fn absolute_url(config: &Config, path: &str) -> String {
 
 fn image_url(config: &Config, kind: &str, id: &str) -> String {
     format!(
-        "{}/__embeds/images/{}/{}.png?__v={}",
+        "{}/__embeds/images/{}/{}.png?__v={}&__cache={}",
         config.public_base_url,
         kind,
         urlencoding::encode(id),
-        urlencoding::encode(&config.image_cache_bust)
+        urlencoding::encode(&config.image_cache_bust),
+        image_cache_bucket(config)
     )
 }
 
 fn strip_png_suffix(id: &str) -> &str {
     id.strip_suffix(".png").unwrap_or(id)
+}
+
+fn image_cache_bucket(config: &Config) -> String {
+    image_cache_bucket_at(config.image_cache_max_age, SystemTime::now())
+}
+
+fn image_cache_bucket_at(max_age: Duration, now: SystemTime) -> String {
+    let bucket_seconds = max_age.as_secs().max(1);
+    let seconds = now
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    let bucket_start = seconds - (seconds % bucket_seconds);
+
+    bucket_start.to_string()
 }
 
 fn metric(label: &str, value: &str) -> EmbedMetric {
@@ -8417,6 +8483,35 @@ mod tests {
         }
     }
 
+    fn assert_generated_image_url(url: &str, expected_base: &str, expected_pairs: &[(&str, &str)]) {
+        assert!(url.starts_with(&format!("{expected_base}?")), "{url}");
+
+        let parsed = url::Url::parse(url).expect("image URL should parse");
+        let pairs = parsed.query_pairs().into_owned().collect::<Vec<_>>();
+        assert!(pairs
+            .iter()
+            .any(|(key, value)| key == "__v" && value == "test"));
+
+        let cache = pairs
+            .iter()
+            .find(|(key, value)| key == "__cache" && !value.trim().is_empty())
+            .map(|(_, value)| value.as_str())
+            .expect("generated image URL should include a cache bucket");
+        let cache = cache
+            .parse::<u64>()
+            .expect("cache bucket should be a timestamp");
+        assert_eq!(cache % 300, 0);
+
+        for (expected_key, expected_value) in expected_pairs {
+            assert!(
+                pairs
+                    .iter()
+                    .any(|(key, value)| key == expected_key && value == expected_value),
+                "{url} should contain {expected_key}={expected_value}"
+            );
+        }
+    }
+
     fn test_meta(kind_label: &str, canonical_url: &str) -> EmbedMetadata {
         EmbedMetadata {
             title: format!("{kind_label} | uma.moe"),
@@ -8561,9 +8656,10 @@ mod tests {
         let meta = tierlist_page_metadata(&config(), Some("sfds&__embed=1"));
 
         assert_eq!(meta.canonical_url, "https://uma.moe/tierlist?sfds=");
-        assert_eq!(
-            meta.image_url,
-            "https://uma.moe/__embeds/images/page/tierlist.png?__v=test&sfds="
+        assert_generated_image_url(
+            &meta.image_url,
+            "https://uma.moe/__embeds/images/page/tierlist.png",
+            &[("sfds", "")],
         );
         assert_eq!(meta.kind_label, "Tierlist");
     }
@@ -9190,6 +9286,7 @@ mod tests {
         }))
         .expect("generated banner timeline shape should parse");
 
+        assert_eq!(details.cache_key.as_deref(), Some("test"));
         assert_eq!(details.events.len(), 1);
         assert_eq!(details.events[0].event_type, "paid_banner");
         assert_eq!(
@@ -9198,6 +9295,32 @@ mod tests {
         );
         assert_eq!(details.events[0].pickup_card_ids, vec![100101, 100201]);
         assert_eq!(details.events[0].prediction_likelihood, Some(0.82));
+    }
+
+    #[test]
+    fn banner_timeline_array_shape_gets_stable_cache_key() {
+        let first = timeline_details_from_value(serde_json::json!([
+            {
+                "type": "story_event",
+                "title": "Seek, Solve, Summer Walk!",
+                "image_path": "assets/images/story/06_seek_solve_summer_walk_banner.png",
+                "global_release_date": "2026-06-11T22:00:00Z"
+            }
+        ]))
+        .expect("array timeline shape should parse");
+
+        let second = timeline_details_from_value(serde_json::json!([
+            {
+                "type": "story_event",
+                "title": "Seek, Solve, Summer Walk!",
+                "image_path": "assets/images/story/06_seek_solve_summer_walk_banner.png",
+                "global_release_date": "2026-06-11T22:00:00Z"
+            }
+        ]))
+        .expect("array timeline shape should parse");
+
+        assert_eq!(first.cache_key, second.cache_key);
+        assert_eq!(first.cache_key.as_deref().map(str::len), Some(16));
     }
 
     #[test]
@@ -9397,8 +9520,30 @@ mod tests {
     #[test]
     fn clean_query_removes_embed_debug_param() {
         assert_eq!(
-            clean_query(Some("filters=abc&__embed=1"), "__embed").as_deref(),
+            clean_query(
+                Some("filters=abc&__embed=1&__v=test&__cache=1200"),
+                "__embed"
+            )
+            .as_deref(),
             Some("filters=abc")
+        );
+    }
+
+    #[test]
+    fn image_cache_bucket_uses_configured_max_age() {
+        assert_eq!(
+            image_cache_bucket_at(
+                std::time::Duration::from_secs(300),
+                UNIX_EPOCH + std::time::Duration::from_secs(1234),
+            ),
+            "1200"
+        );
+        assert_eq!(
+            image_cache_bucket_at(
+                std::time::Duration::from_secs(0),
+                UNIX_EPOCH + std::time::Duration::from_secs(1234),
+            ),
+            "1234"
         );
     }
 
@@ -9413,9 +9558,10 @@ mod tests {
             "123",
         );
 
-        assert_eq!(
-            url,
-            "https://uma.moe/__embeds/images/page/circles.png?__v=test&sort=rank&__bucket=123"
+        assert_generated_image_url(
+            &url,
+            "https://uma.moe/__embeds/images/page/circles.png",
+            &[("sort", "rank"), ("__bucket", "123")],
         );
     }
 
@@ -9430,9 +9576,10 @@ mod tests {
             "2026-06-16T08:30:00Z",
         );
 
-        assert_eq!(
-            url,
-            "https://uma.moe/__embeds/images/circle/717148109.png?__v=test&__last_update=2026-06-16T08%3A30%3A00Z"
+        assert_generated_image_url(
+            &url,
+            "https://uma.moe/__embeds/images/circle/717148109.png",
+            &[("__last_update", "2026-06-16T08:30:00Z")],
         );
     }
 
@@ -9448,9 +9595,10 @@ mod tests {
             meta.canonical_url,
             "https://uma.moe/tools/lineage-planner?tree=abc-def_123"
         );
-        assert_eq!(
-            meta.image_url,
-            "https://uma.moe/__embeds/images/page/lineage-planner.png?__v=test&tree=abc-def_123"
+        assert_generated_image_url(
+            &meta.image_url,
+            "https://uma.moe/__embeds/images/page/lineage-planner.png",
+            &[("tree", "abc-def_123")],
         );
         assert_eq!(meta.title, "Shared Lineage Planner | uma.moe");
         assert!(meta

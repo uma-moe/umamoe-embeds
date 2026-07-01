@@ -242,7 +242,7 @@ The workflow injects the environment-specific public and internal service URLs a
 
 Public exposure still depends on nginx routing the intended embed traffic to `127.0.0.1:3108` for beta and `127.0.0.1:3008` for production.
 
-`UMAMOE_FRONTEND_ORIGIN` should not point at a public hostname that routes back through the embed service for normal SPA requests, or the fallback proxy can loop. If nginx only sends bot/debug/embed-image traffic to this service, the public static shell URL is fine.
+`UMAMOE_FRONTEND_ORIGIN` should not point at a public hostname that routes back through the embed service for normal SPA requests, or the fallback proxy can loop. If nginx only sends bot/debug/embed-image traffic to this service, the public static shell URL is fine. As a final guard, fallback proxy requests that would target the configured public origin are refused with `421` instead of being sent back through the public hostname.
 
 After beta deploys, test:
 
