@@ -2648,6 +2648,7 @@ fn profile_borrow_details(meta: &EmbedMetadata) -> DatabaseEmbedDetails {
         right_affinity_score: metric_i64(meta, &["Lineage Right Affinity"]),
         win_count: None,
         white_count: None,
+        scenario_id: None,
         follower_num: None,
         support_card_id: metric_i64(meta, &["Support Card"]),
         limit_break_count: metric_i64(meta, &["Support LB"]),

@@ -5140,6 +5140,7 @@ mod tests {
                 right_affinity_score: Some(19),
                 win_count: Some(14),
                 white_count: Some(13),
+                scenario_id: Some(4),
                 follower_num: None,
                 support_card_id: Some(30036),
                 limit_break_count: Some(1),
@@ -5174,6 +5175,8 @@ mod tests {
         ));
         assert!(html.contains(r#"<main class="database-card embed-kind-database embed-type-database embed-route-database card-view-database">"#));
         assert!(html.contains(r#"<article class="database-result-card">"#));
+        assert!(html.contains("grand_concert_logo.png"));
+        assert!(html.contains(r#"alt="Grand Concert""#));
         assert!(html.contains("embed-brand-corner"));
         assert!(html.contains("database-trainer-id"));
         assert!(html.contains(".spark-item.matched-filter"));

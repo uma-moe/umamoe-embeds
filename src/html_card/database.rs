@@ -107,6 +107,9 @@ pub(super) fn render_stats(database: &DatabaseEmbedDetails) -> String {
             "white-stat",
         ));
     }
+    if let Some(scenario) = render_scenario_logo(database) {
+        items.push(scenario);
+    }
 
     let rank_score = render_rank_score(database);
     if items.is_empty() && rank_score.is_empty() {
@@ -693,6 +696,50 @@ fn render_stat_values(label: &str, value: &str, class_name: &str) -> String {
         html_escape(value),
         html_escape(label),
     )
+}
+
+fn render_scenario_logo(database: &DatabaseEmbedDetails) -> Option<String> {
+    let (path, name) = scenario_logo(database.scenario_id?)?;
+    Some(format!(
+        r#"<span class="scenario-stat" title="{}"><img class="scenario-logo" src="{}" alt="{}" onerror="this.style.visibility='hidden'"></span>"#,
+        html_escape(name),
+        html_escape(&asset_url(&database.asset_base_url, path)),
+        html_escape(name),
+    ))
+}
+
+fn scenario_logo(scenario_id: i64) -> Option<(&'static str, &'static str)> {
+    Some(match scenario_id {
+        0 => ("/images/scenario/ura_finals_logo.png", "URA Finals"),
+        1 => ("/images/scenario/scenario_logo_002.png", "Unity Cup"),
+        2 | 3 => ("/images/scenario/scenario_logo_004.png", "Trackblazer"),
+        4 => ("/images/scenario/grand_concert_logo.png", "Grand Concert"),
+        5 => ("/images/scenario/scenario_logo_005.png", "Grand Masters"),
+        6 => ("/images/scenario/scenario_logo_006.png", "Project L'Arc"),
+        7 => ("/images/scenario/scenario_logo_007.png", "U.A.F."),
+        8 => (
+            "/images/scenario/scenario_logo_008.png",
+            "Great Food Festival",
+        ),
+        9 => (
+            "/images/scenario/scenario_logo_009.png",
+            "Run! Mecha Umamusume",
+        ),
+        10 => (
+            "/images/scenario/scenario_logo_010.png",
+            "The Twinkle Legends",
+        ),
+        11 => (
+            "/images/scenario/scenario_logo_011.png",
+            "Design Your Island",
+        ),
+        12 => (
+            "/images/scenario/scenario_logo_012.png",
+            "The Everlasting Yukoma Hot Springs",
+        ),
+        13 => ("/images/scenario/scenario_logo_013.png", "Beyond Dreams"),
+        _ => return None,
+    })
 }
 
 fn render_rank_score(database: &DatabaseEmbedDetails) -> String {
@@ -3191,6 +3238,24 @@ fn database_css() -> &'static str {
     .wins-stat .stat-number { color: var(--accent-secondary); }
     .white-stat .stat-number { color: var(--accent-warning); }
     .score-stat .stat-number { color: var(--accent-primary); }
+
+    .scenario-stat {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 104px;
+      height: 46px;
+      flex: 0 0 auto;
+      overflow: visible;
+    }
+
+    .scenario-logo {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+    }
 
     .rank-score-section {
       display: flex;

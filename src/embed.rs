@@ -103,6 +103,7 @@ pub struct DatabaseEmbedDetails {
     pub right_affinity_score: Option<i64>,
     pub win_count: Option<i64>,
     pub white_count: Option<i64>,
+    pub scenario_id: Option<i64>,
     pub follower_num: Option<i64>,
     pub support_card_id: Option<i64>,
     pub limit_break_count: Option<i64>,
@@ -876,6 +877,8 @@ struct DatabaseInheritanceRecord {
     win_count: Option<i64>,
     #[serde(default, deserialize_with = "deserialize_optional_i64")]
     white_count: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
+    scenario_id: Option<i64>,
     #[serde(default, deserialize_with = "deserialize_optional_i64")]
     affinity_score: Option<i64>,
     #[serde(default)]
@@ -2992,6 +2995,7 @@ fn database_result_metadata(
             right_affinity_score,
             win_count: inheritance.win_count,
             white_count: inheritance.white_count,
+            scenario_id: inheritance.scenario_id,
             follower_num,
             support_card_id: inheritance.support_card_id.or(support_card.support_card_id),
             limit_break_count: inheritance
@@ -7305,6 +7309,8 @@ fn database_search_params_from_query_with_resources(
         apply_database_filter_state(&mut params, &filter_state, resources);
     }
 
+    normalize_database_scenario_filter(&mut params);
+
     params
 }
 
@@ -7369,6 +7375,7 @@ fn apply_database_filter_state(
     set_param_array(params, state, "ip", "parent_id");
     set_param_array(params, state, "ep", "exclude_parent_id");
     set_param_array(params, state, "emp", "exclude_main_parent_id");
+    set_param_array(params, state, "sid", "scenario_id");
 
     if let Some(tree) = state.get("t").and_then(Value::as_array) {
         if let Some(player_chara_id) = number_at(tree, 0) {
@@ -7400,6 +7407,18 @@ fn apply_database_filter_state(
     set_param_number(params, state, "pr", "parent_rank");
     set_param_number(params, state, "mf", "max_follower_num");
     set_param_number(params, state, "mmwc", "min_main_white_count");
+    set_param_number(params, state, "cwc", "min_common_white_count");
+    set_param_number(params, state, "cws", "min_common_white_stars_sum");
+    set_param_number(params, state, "swc", "min_scenario_white_count");
+    set_param_number(params, state, "sws", "min_scenario_white_stars_sum");
+    set_param_number(params, state, "rwc", "min_race_white_count");
+    set_param_number(params, state, "rws", "min_race_white_stars_sum");
+    set_param_number(params, state, "mcwc", "min_main_common_white_count");
+    set_param_number(params, state, "mcws", "min_main_common_white_stars_sum");
+    set_param_number(params, state, "mswc", "min_main_scenario_white_count");
+    set_param_number(params, state, "msws", "min_main_scenario_white_stars_sum");
+    set_param_number(params, state, "mrwc", "min_main_race_white_count");
+    set_param_number(params, state, "mrws", "min_main_race_white_stars_sum");
     set_clamped_star_sum(params, state, "bss", "min_blue_stars_sum", Some(9));
     set_clamped_star_sum(params, state, "pss", "min_pink_stars_sum", Some(9));
     set_clamped_star_sum(params, state, "gss", "min_green_stars_sum", Some(9));
@@ -7411,6 +7430,63 @@ fn decode_database_filter_state(value: &str) -> Option<Value> {
     let bytes = BASE64_STANDARD.decode(normalized).ok()?;
     let decoded = String::from_utf8(bytes).ok()?;
     serde_json::from_str(&decoded).ok()
+}
+
+fn normalize_database_scenario_filter(params: &mut Vec<(String, String)>) {
+    let Some(raw_scenario_ids) = param_value(params, "scenario_id").map(str::to_string) else {
+        return;
+    };
+
+    let mut scenario_ids = raw_scenario_ids
+        .split(',')
+        .filter_map(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value >= 0)
+        .collect::<Vec<_>>();
+    scenario_ids.sort_unstable();
+    scenario_ids.dedup();
+
+    if scenario_ids.is_empty() {
+        params.retain(|(key, _)| key != "scenario_id");
+        return;
+    }
+
+    if !scenario_ids.contains(&0) {
+        set_param(params, "scenario_id", &csv_numbers(&scenario_ids));
+        return;
+    }
+
+    // The structured search intentionally ignores scenario 0. Match the
+    // frontend by expressing URA (and mixed selections containing URA) in UQL.
+    params.retain(|(key, _)| key != "scenario_id");
+    let scenario_clause = if scenario_ids.len() == 1 {
+        "scenario_id = 0".to_string()
+    } else {
+        format!("scenario_id in ({})", csv_numbers(&scenario_ids))
+    };
+    let existing_expression = param_value(params, "uql")
+        .map(trim_uql_expression)
+        .filter(|value| !value.is_empty());
+    let uql = existing_expression
+        .map(|existing| format!("where ({existing}) and ({scenario_clause})"))
+        .unwrap_or_else(|| format!("where {scenario_clause}"));
+    set_param(params, "uql", &uql);
+}
+
+fn trim_uql_expression(query: &str) -> &str {
+    let trimmed = query.trim();
+    let without_where = match (trimmed.get(..5), trimmed.get(5..)) {
+        (Some(prefix), Some(rest))
+            if prefix.eq_ignore_ascii_case("where")
+                && rest.chars().next().is_none_or(char::is_whitespace) =>
+        {
+            rest.trim_start()
+        }
+        _ => trimmed,
+    };
+    without_where
+        .strip_suffix(';')
+        .unwrap_or(without_where)
+        .trim_end()
 }
 
 fn is_direct_database_query_param(key: &str) -> bool {
@@ -7430,6 +7506,7 @@ fn is_direct_database_query_param(key: &str) -> bool {
             | "exclude_main_parent_id"
             | "parent_rank"
             | "parent_rarity"
+            | "scenario_id"
             | "blue_sparks"
             | "pink_sparks"
             | "green_sparks"
@@ -7450,6 +7527,18 @@ fn is_direct_database_query_param(key: &str) -> bool {
             | "min_main_white_count"
             | "min_win_count"
             | "min_white_count"
+            | "min_common_white_count"
+            | "min_common_white_stars_sum"
+            | "min_scenario_white_count"
+            | "min_scenario_white_stars_sum"
+            | "min_race_white_count"
+            | "min_race_white_stars_sum"
+            | "min_main_common_white_count"
+            | "min_main_common_white_stars_sum"
+            | "min_main_scenario_white_count"
+            | "min_main_scenario_white_stars_sum"
+            | "min_main_race_white_count"
+            | "min_main_race_white_stars_sum"
             | "support_card_id"
             | "min_limit_break"
             | "min_blue_stars_sum"
@@ -9018,7 +9107,7 @@ mod tests {
 
     #[test]
     fn database_compact_filters_decode_to_backend_params() {
-        let state = r#"{"uid":"540903147493","un":"Arumi","sc":"30039","lb":4,"mwc":18,"b":[[10,3,3]],"mb":[[20,2,3]],"ow":[1001,1002],"t":[9001,1001,2001,3001,null,null,null],"bss":12}"#;
+        let state = r#"{"uid":"540903147493","un":"Arumi","sc":"30039","lb":4,"mwc":18,"b":[[10,3,3]],"mb":[[20,2,3]],"ow":[1001,1002],"t":[9001,1001,2001,3001,null,null,null],"sid":[4],"cwc":2,"cws":5,"swc":1,"sws":3,"rwc":4,"rws":9,"mcwc":1,"mcws":2,"mswc":2,"msws":4,"mrwc":3,"mrws":6,"bss":12}"#;
         let encoded = BASE64_STANDARD.encode(state);
         let query = format!("filters={}", urlencoding::encode(&encoded));
         let params = database_search_params_from_query(&query);
@@ -9042,7 +9131,55 @@ mod tests {
         assert_eq!(param_value(&params, "main_parent_id"), Some("1001"));
         assert_eq!(param_value(&params, "parent_left_id"), Some("2001"));
         assert_eq!(param_value(&params, "parent_right_id"), Some("3001"));
+        assert_eq!(param_value(&params, "scenario_id"), Some("4"));
+        assert_eq!(param_value(&params, "min_common_white_count"), Some("2"));
+        assert_eq!(
+            param_value(&params, "min_common_white_stars_sum"),
+            Some("5")
+        );
+        assert_eq!(param_value(&params, "min_scenario_white_count"), Some("1"));
+        assert_eq!(
+            param_value(&params, "min_scenario_white_stars_sum"),
+            Some("3")
+        );
+        assert_eq!(param_value(&params, "min_race_white_count"), Some("4"));
+        assert_eq!(param_value(&params, "min_race_white_stars_sum"), Some("9"));
+        assert_eq!(
+            param_value(&params, "min_main_common_white_count"),
+            Some("1")
+        );
+        assert_eq!(
+            param_value(&params, "min_main_common_white_stars_sum"),
+            Some("2")
+        );
+        assert_eq!(
+            param_value(&params, "min_main_scenario_white_count"),
+            Some("2")
+        );
+        assert_eq!(
+            param_value(&params, "min_main_scenario_white_stars_sum"),
+            Some("4")
+        );
+        assert_eq!(param_value(&params, "min_main_race_white_count"), Some("3"));
+        assert_eq!(
+            param_value(&params, "min_main_race_white_stars_sum"),
+            Some("6")
+        );
         assert_eq!(param_value(&params, "min_blue_stars_sum"), Some("9"));
+    }
+
+    #[test]
+    fn database_scenario_zero_filter_is_preserved_through_uql() {
+        let state = r#"{"uql":"where affinity >= 50;","sid":[3,0,3]}"#;
+        let encoded = BASE64_STANDARD.encode(state);
+        let query = format!("filters={}", urlencoding::encode(&encoded));
+        let params = database_search_params_from_query(&query);
+
+        assert_eq!(param_value(&params, "scenario_id"), None);
+        assert_eq!(
+            param_value(&params, "uql"),
+            Some("where (affinity >= 50) and (scenario_id in (0,3))")
+        );
     }
 
     #[test]
